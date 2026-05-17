@@ -1,0 +1,14 @@
+python-dotenv
+pandas
+numpy
+psycopg[binary]
+sqlalchemy
+pgvector
+openai
+streamlit
+fastapi
+uvicorn
+pydantic
+tiktoken
+pytest
+ruff
