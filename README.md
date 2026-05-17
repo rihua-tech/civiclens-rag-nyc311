@@ -1,5 +1,7 @@
 # CivicLens RAG — NYC 311 Operations Copilot
 
+[![CI](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml/badge.svg)](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml)
+
 AI Data Engineering / Hybrid RAG portfolio project that extends the NYC 311 Lakehouse with a cited RAG assistant for service request documentation, data definitions, pipeline runbooks, and operational analytics questions.
 
 ## Project Goal
