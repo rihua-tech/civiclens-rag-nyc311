@@ -1,7 +1,7 @@
 python-dotenv
 pandas
 numpy
-psycopg[binary]
+psycopg[binary]>=3.2,<4
 sqlalchemy
 pgvector
 openai
