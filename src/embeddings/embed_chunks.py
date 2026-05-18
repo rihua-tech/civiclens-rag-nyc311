@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -14,6 +16,38 @@ DEFAULT_INPUT_PATH = Path("data/processed/chunks.jsonl")
 DEFAULT_SCHEMA_PATH = Path("sql/schema.sql")
 LOCAL_EMBEDDING_MODEL = "local-deterministic-1536"
 EMBEDDING_DIMENSIONS = 1536
+TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+")
+EMBEDDING_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "will",
+    "with",
+}
 
 
 def project_root() -> Path:
@@ -40,21 +74,34 @@ def load_chunks(path: str | Path) -> list[dict]:
     return chunks
 
 
+def tokenize_for_embedding(text: str) -> list[str]:
+    return [
+        token
+        for token in TOKEN_PATTERN.findall(text.lower())
+        if token not in EMBEDDING_STOPWORDS
+    ]
+
+
 def local_deterministic_embedding(text: str, dimensions: int = EMBEDDING_DIMENSIONS) -> list[float]:
     if dimensions <= 0:
         raise ValueError("dimensions must be greater than 0")
 
-    text_bytes = text.encode("utf-8")
-    embedding: list[float] = []
+    tokens = tokenize_for_embedding(text)
+    if not tokens:
+        tokens = [hashlib.sha256(text.encode("utf-8")).hexdigest()]
 
-    for index in range(dimensions):
-        index_bytes = index.to_bytes(4, byteorder="big", signed=False)
-        digest = hashlib.sha256(text_bytes + index_bytes).digest()
-        integer = int.from_bytes(digest[:8], byteorder="big", signed=False)
-        scaled_value = (integer / ((1 << 64) - 1)) * 2 - 1
-        embedding.append(round(scaled_value, 8))
+    embedding = [0.0] * dimensions
+    for token in tokens:
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:4], byteorder="big", signed=False) % dimensions
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        embedding[index] += sign
 
-    return embedding
+    norm = math.sqrt(sum(value * value for value in embedding))
+    if norm == 0:
+        return embedding
+
+    return [round(value / norm, 8) for value in embedding]
 
 
 def openai_embedding(text: str, settings: Settings) -> list[float]:

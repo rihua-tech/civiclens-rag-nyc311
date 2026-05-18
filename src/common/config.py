@@ -49,6 +49,7 @@ class Settings:
     database_url: str
     embedding_model: str
     use_openai_embeddings: bool
+    use_openai_answers: bool
     openai_api_key: str
 
     @classmethod
@@ -58,6 +59,7 @@ class Settings:
             database_url=os.getenv("DATABASE_URL") or build_database_url(),
             embedding_model=os.getenv("EMBEDDING_MODEL", "local-deterministic-1536"),
             use_openai_embeddings=env_flag("USE_OPENAI_EMBEDDINGS", default=False),
+            use_openai_answers=env_flag("USE_OPENAI_ANSWERS", default=False),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         )
 

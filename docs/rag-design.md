@@ -34,3 +34,17 @@ python -m src.embeddings.embed_chunks
 ```
 
 By default, embeddings are generated offline with the deterministic local `local-deterministic-1536` model. OpenAI embeddings are opt-in only with `USE_OPENAI_EMBEDDINGS=true` and a configured `OPENAI_API_KEY`.
+
+## Local Retrieval and Cited Answer Flow
+
+Issue 4 adds the first local retrieval and cited answer layer. This remains a development workflow, not a production deployment or complete assistant.
+
+```text
+Question
+    -> local question embedding
+    -> PostgreSQL/pgvector chunk retrieval
+    -> context-only cited answer
+    -> safe no-answer response when context is weak
+```
+
+The default answer generator is local and uses only retrieved chunk text. OpenAI answer generation is opt-in with `USE_OPENAI_ANSWERS=true` and a configured `OPENAI_API_KEY`.
