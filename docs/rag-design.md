@@ -21,3 +21,16 @@ Each generated answer should include:
 ## No-Answer Rule
 
 If the retrieved context is weak, the assistant should say it does not have enough source context to answer confidently.
+
+## Local Embedding Storage Flow
+
+Issue 3 stores local chunks and embeddings in PostgreSQL with pgvector. This is only the database and embedding storage step; retrieval, answer generation, and the Streamlit RAG UI are not implemented here.
+
+```bash
+python -m src.ingestion.load_documents
+python -m src.chunking.chunk_documents
+docker compose up -d
+python -m src.embeddings.embed_chunks
+```
+
+By default, embeddings are generated offline with the deterministic local `local-deterministic-1536` model. OpenAI embeddings are opt-in only with `USE_OPENAI_EMBEDDINGS=true` and a configured `OPENAI_API_KEY`.
