@@ -46,6 +46,15 @@ def test_weak_retrieval_returns_safe_no_answer():
     assert response["sources"]
 
 
+def test_generic_overlap_returns_safe_no_answer():
+    generic_chunk = sample_chunk()
+    generic_chunk["chunk_text"] = "This document includes NYC 311 data sources and project context."
+
+    response = local_answer("What are common data quality issues in NYC 311?", [generic_chunk])
+
+    assert response["answer"] == NO_ANSWER
+
+
 def test_answer_generation_does_not_require_openai_by_default(monkeypatch):
     monkeypatch.delenv("USE_OPENAI_ANSWERS", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

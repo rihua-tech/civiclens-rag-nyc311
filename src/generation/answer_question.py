@@ -14,6 +14,27 @@ NO_ANSWER = "I do not have enough source context to answer that."
 DEFAULT_CONFIDENCE_NOTE = (
     "This answer is generated from retrieved local context only; verify source documents before making operational decisions."
 )
+ANSWER_GENERIC_TERMS = EMBEDDING_STOPWORDS | {
+    "311",
+    "common",
+    "context",
+    "data",
+    "document",
+    "documents",
+    "does",
+    "hand",
+    "issues",
+    "local",
+    "mean",
+    "means",
+    "nyc",
+    "off",
+    "project",
+    "source",
+    "sources",
+    "use",
+    "used",
+}
 
 
 def question_terms(question: str) -> set[str]:
@@ -24,14 +45,36 @@ def question_terms(question: str) -> set[str]:
     }
 
 
+def answer_key_terms(question: str) -> set[str]:
+    terms = question_terms(question)
+    key_terms = terms - ANSWER_GENERIC_TERMS
+    return key_terms or terms
+
+
+def clean_candidate_text(text: str) -> str:
+    cleaned_text = re.sub(r"\[!\[.*?\]\(.*?\)\]\(.*?\)", " ", text)
+    cleaned_text = cleaned_text.replace("```text", " ").replace("```", " ")
+    cleaned_text = re.sub(r"#{1,6}\s*", " ", cleaned_text)
+    cleaned_text = re.sub(r"`([^`]+)`", r"\1", cleaned_text)
+    cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip(" -|")
+    return cleaned_text
+
+
 def split_sentences(text: str) -> list[str]:
-    compact_text = " ".join(text.split())
-    if not compact_text:
+    prepared_text = " ".join(text.split())
+    if not prepared_text:
         return []
+
+    prepared_text = prepared_text.replace("```text", ". ").replace("```", ". ")
+    prepared_text = re.sub(r"#{1,6}\s+", ". ", prepared_text)
+    prepared_text = re.sub(r"\s+\|\s+", ". ", prepared_text)
+    prepared_text = re.sub(r"\s+-\s+", ". ", prepared_text)
+    prepared_text = re.sub(r"\s+\d+\.\s+", ". ", prepared_text)
+
     return [
-        sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+", compact_text)
-        if sentence.strip()
+        clean_candidate_text(sentence)
+        for sentence in re.split(r"(?<=[.!?])\s+", prepared_text)
+        if clean_candidate_text(sentence)
     ]
 
 
@@ -61,7 +104,7 @@ def unique_sources(retrieved_chunks: list[dict]) -> list[dict]:
 
 
 def select_answer_sentences(question: str, retrieved_chunks: list[dict], limit: int = 3) -> list[tuple[str, int]]:
-    terms = question_terms(question)
+    terms = answer_key_terms(question)
     scored_sentences: list[tuple[int, float, int, str]] = []
 
     for source_number, chunk in enumerate(retrieved_chunks, start=1):
@@ -71,6 +114,8 @@ def select_answer_sentences(question: str, retrieved_chunks: list[dict], limit: 
             sentence_terms = set(TOKEN_PATTERN.findall(sentence.lower()))
             overlap = len(terms & sentence_terms) if terms else 0
             if overlap == 0:
+                continue
+            if len(sentence.split()) < 4:
                 continue
             scored_sentences.append(
                 (
