@@ -1,0 +1,19 @@
+question,category,expected_behavior,expected_source_hint
+What is the NYC 311 Lakehouse architecture?,architecture,cited_answer,docs/architecture.md
+Which source explains the project architecture?,architecture,cited_answer,docs/architecture.md
+Where do retrieval and cited answers fit in the project architecture?,architecture,cited_answer,docs/architecture.md
+What is the retrieval scope?,architecture,cited_answer,docs/rag-design.md
+What is the no-answer rule?,runbook,cited_answer,docs/rag-design.md
+How do I run the local Streamlit hybrid flow?,runbook,cited_answer,docs/rag-design.md
+Which source provides field definitions for NYC 311 service request records?,data_dictionary,cited_answer,docs/data-sources.md
+Which fields describe request status agency location or timestamps?,data_dictionary,cited_answer,docs/data-sources.md
+What does closed_date mean?,data_dictionary,safe_no_answer,docs/data-sources.md
+What does complaint_type mean?,data_dictionary,safe_no_answer,docs/data-sources.md
+What are the top complaint types?,analytics,analytics_answer,data/sample_outputs/top_complaint_types.csv
+Which borough has the highest complaint volume?,analytics,analytics_answer,data/sample_outputs/requests_by_borough.csv
+Which agencies handle the most requests?,analytics,analytics_answer,data/sample_outputs/agency_request_volume.csv
+What is the backlog summary?,analytics,analytics_answer,data/sample_outputs/backlog_summary.csv
+How does ADF hand off data to Databricks?,runbook,cited_answer,docs/data-sources.md
+What should an operator check when a pipeline step fails?,runbook,cited_answer,docs/rag-design.md
+What is zqxjv plern mivrok blasson?,no_answer,safe_no_answer,none
+Explain the orbital pineapple parking treaty.,no_answer,safe_no_answer,none

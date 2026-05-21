@@ -42,6 +42,44 @@ In Progress.
 
 This repository is initially scaffolded for development. Do not claim completed, deployed, production-ready, or cloud execution proof until real implementation and evidence are added.
 
+## Local Validation
+
+Use these commands for local development checks. The evaluation command is a local PostgreSQL/pgvector integration check; CI keeps to offline unit tests and compile checks.
+
+```bash
+docker compose up -d
+python -m src.ingestion.load_documents
+python -m src.chunking.chunk_documents
+python -m src.embeddings.embed_chunks
+python -m src.evaluation.evaluate_rag
+python -m pytest -q
+python -m compileall app src tests
+```
+
+OpenAI is not required by default. Local deterministic embeddings and context-only answers are used unless OpenAI flags are explicitly enabled in a developer environment.
+
+## Docker Setup
+
+`docker-compose.yml` starts a local PostgreSQL service using the `pgvector/pgvector:pg16` image. Safe placeholder defaults are provided through `.env.example`; keep real local overrides in `.env`, which is ignored by Git.
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+After the database is healthy, run ingestion, chunking, and embedding before local RAG evaluation or the Streamlit app.
+
+## CI
+
+The GitHub Actions workflow runs offline-safe checks only:
+
+```bash
+python -m pytest -q
+python -m compileall app src tests
+```
+
+CI does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, or raw NYC 311 datasets.
+
 ## Tech Stack
 
 - Python
