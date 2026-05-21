@@ -19,6 +19,25 @@ def sample_chunk() -> dict:
     }
 
 
+def architecture_markdown_chunk() -> dict:
+    return {
+        "chunk_id": "chunk_architecture",
+        "document_id": "doc_architecture",
+        "chunk_text": (
+            "# Architecture ## CivicLens RAG - Hybrid RAG Architecture ```text "
+            "NYC 311 Documentation + NYC 311 Data Dictionary + NYC 311 Lakehouse README / Runbooks "
+            "+ Gold Mart Sample Summaries -> Ingestion Pipeline -> Text Cleaning + Chunking "
+            "-> Metadata Tagging -> Embedding Generation -> PostgreSQL + pgvector -> Retriever "
+            "-> LLM Answer Generator -> Cited Answer UI ``` ## Design Principle "
+            "Documents and metadata are stored for retrieval. Structured metrics should remain in SQL tables."
+        ),
+        "source_name": "architecture.md",
+        "source_path": "docs/architecture.md",
+        "similarity_score": 0.52,
+        "rank": 1,
+    }
+
+
 def test_cited_answer_includes_sources_section():
     response = local_answer("What is the NYC 311 Lakehouse architecture?", [sample_chunk()])
     formatted = format_answer_response(response)
@@ -26,6 +45,17 @@ def test_cited_answer_includes_sources_section():
     assert response["answer"] != NO_ANSWER
     assert "Sources:" in formatted
     assert "architecture.md - docs/architecture.md - chunk chunk_1" in formatted
+
+
+def test_rag_answer_removes_raw_markdown_heading_clutter():
+    response = local_answer("What is the NYC 311 Lakehouse architecture?", [architecture_markdown_chunk()])
+
+    assert response["answer"] != NO_ANSWER
+    assert "##" not in response["answer"]
+    assert "```" not in response["answer"]
+    assert "Architecture ##" not in response["answer"]
+    assert "PostgreSQL/pgvector storage" in response["answer"]
+    assert response["sources"][0]["source_name"] == "architecture.md"
 
 
 def test_empty_retrieval_returns_safe_no_answer():
