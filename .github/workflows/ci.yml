@@ -9,6 +9,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      USE_OPENAI_EMBEDDINGS: "false"
+      USE_OPENAI_ANSWERS: "false"
 
     steps:
       - name: Check out repo
@@ -24,7 +27,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Run tests
+      - name: Run offline unit tests
         run: python -m pytest -q
 
       - name: Compile Python files

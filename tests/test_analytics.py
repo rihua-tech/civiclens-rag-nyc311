@@ -39,3 +39,10 @@ def test_unknown_analytics_question_returns_safe_fallback():
     assert "predefined sample analytics questions" in response["answer"]
     assert response["sources"] == []
     assert response["retrieved_chunks"] == []
+
+
+def test_field_definition_question_does_not_route_to_analytics():
+    response = answer_analytics_question("What does complaint_type mean?")
+
+    assert response["mode"] == "fallback"
+    assert response["sources"] == []

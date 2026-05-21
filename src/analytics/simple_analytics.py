@@ -28,6 +28,14 @@ ANALYTICS_CUES = (
     "backlog",
     "overdue",
 )
+FIELD_DEFINITION_CUES = (
+    "what does",
+    "what do",
+    "mean",
+    "means",
+    "definition",
+    "define",
+)
 
 
 def load_sample_output(file_name: str) -> list[dict[str, str]]:
@@ -130,6 +138,8 @@ def answer_analytics_question(question: str) -> dict:
 
     if not normalized:
         return fallback_response()
+    if looks_like_field_definition_question(normalized):
+        return fallback_response()
     if "complaint" in normalized and ("top" in normalized or "type" in normalized):
         return top_complaint_types_answer()
     if "borough" in normalized and (
@@ -154,7 +164,13 @@ def is_analytics_question(question: str) -> bool:
 
 def looks_like_analytics_question(question: str) -> bool:
     normalized = " ".join(question.lower().split())
+    if looks_like_field_definition_question(normalized):
+        return False
     return any(cue in normalized for cue in ANALYTICS_CUES)
+
+
+def looks_like_field_definition_question(normalized_question: str) -> bool:
+    return any(cue in normalized_question for cue in FIELD_DEFINITION_CUES)
 
 
 def fallback_response() -> dict:

@@ -46,13 +46,20 @@ ARCHITECTURE_STEPS = (
     ("llm answer generator", "answer generation"),
     ("cited answer ui", "a cited answer UI"),
 )
+ANSWER_STOPWORDS = EMBEDDING_STOPWORDS | {
+    "define",
+    "definition",
+    "does",
+    "mean",
+    "means",
+}
 
 
 def question_terms(question: str) -> set[str]:
     return {
         token
         for token in TOKEN_PATTERN.findall(question.lower())
-        if token not in EMBEDDING_STOPWORDS
+        if token not in ANSWER_STOPWORDS
     }
 
 
