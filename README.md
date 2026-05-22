@@ -18,11 +18,11 @@ This project demonstrates:
 - Local app demo: Streamlit provides a simple browser interface for document questions and predefined analytics questions.
 - Honest limitations: this is local, not deployed, not connected to live NYC 311 data, and not a production text-to-SQL agent.
 
-## Architecture
+## Hybrid RAG Architecture
 
 ```mermaid
 flowchart TD
-    docs["NYC 311 docs<br/>Data dictionary notes<br/>Runbooks"]
+    docs["NYC 311 documentation<br/>Data dictionary notes<br/>Runbooks"]
     sampleAnalytics["Sample analytics CSV outputs"]
 
     docs --> ingestion["Document ingestion"]
@@ -30,13 +30,17 @@ flowchart TD
     chunking --> embeddings["Local embeddings by default"]
     embeddings --> pgvector["PostgreSQL + pgvector"]
     pgvector --> retrieval["Vector retrieval"]
-    retrieval --> answer["Context-only answer generation"]
+    retrieval --> answer["Context-only cited answer generation"]
     answer --> ui["Cited Streamlit UI"]
 
     sampleAnalytics --> analyticsRouter["Simple analytics router"]
     analyticsRouter --> analyticsAnswer["Predefined analytics answer"]
     analyticsAnswer --> ui
 ```
+
+This architecture uses vector retrieval for documentation questions and predefined sample analytics outputs for structured analytics questions.
+
+Evaluation, pytest, and GitHub Actions validate retrieval behavior, citation coverage, analytics routing, and safe no-answer responses.
 
 ## Data Sources
 
