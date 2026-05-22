@@ -132,7 +132,15 @@ CI does not require Docker, `.env`, OpenAI credentials, a live database, externa
 
 ## Screenshots
 
-Screenshots will be added after final local UI capture. No screenshot files are referenced yet.
+These screenshots are captured from a local Streamlit run.
+
+### Local Streamlit UI
+
+![CivicLens RAG local Streamlit UI](docs/screenshots/streamlit-local-ui.png)
+
+### Sample Analytics Answer
+
+![CivicLens RAG sample analytics answer](docs/screenshots/streamlit-analytics-answer.png)
 
 ## Limitations
 

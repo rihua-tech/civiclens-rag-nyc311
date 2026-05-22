@@ -25,4 +25,12 @@ Python, Streamlit, PostgreSQL, pgvector, Docker, SQL, pytest, GitHub Actions, RA
 - See Evaluation Notes
 - Run Locally
 
+## Suggested Internal Links
+
+- Repository README: `README.md`
+- Architecture notes: `docs/architecture.md`
+- Evaluation notes: `docs/evaluation-notes.md`
+- Local UI screenshot: `docs/screenshots/streamlit-local-ui.png`
+- Sample analytics screenshot: `docs/screenshots/streamlit-analytics-answer.png`
+
 Avoid labels such as "Live Demo", "Production App", or "Cloud Deployment" until those are actually implemented.
