@@ -6,17 +6,23 @@ CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that
 
 The project is designed to show how an operational data platform can pair documentation retrieval with lightweight analytics answers while keeping outputs grounded, cited, and honest about current limitations.
 
+## Quick Proof Summary
+
+- Local Streamlit app runs with cited RAG answers and sample analytics answers.
+- PostgreSQL + pgvector stores and retrieves embedded document chunks.
+- Local evaluation passes 18/18 RAG and analytics checks.
+- GitHub Actions runs offline-safe pytest and compileall checks.
+- No deployment, live NYC 311 data, default OpenAI calls, or production text-to-SQL claims.
+
 ## Why This Project Matters
 
 This project demonstrates:
 
-- Data engineering foundation: ingestion, chunking, embeddings, SQL schema, Dockerized Postgres, and local validation.
-- RAG pipeline design: curated documents become searchable chunks with source metadata and citations.
-- Vector database usage: PostgreSQL + pgvector stores and retrieves embedded chunks.
-- Metadata and citations: answers preserve source paths and chunk identifiers for review.
-- Evaluation thinking: a small evaluation set checks RAG answers, citations, analytics routing, and safe no-answer behavior.
-- Local app demo: Streamlit provides a simple browser interface for document questions and predefined analytics questions.
-- Honest limitations: this is local, not deployed, not connected to live NYC 311 data, and not a production text-to-SQL agent.
+- Data engineering foundation: ingestion, chunking, SQL schema, Dockerized PostgreSQL, and local validation.
+- RAG system design: curated documents become searchable chunks with metadata and citations.
+- Vector retrieval: PostgreSQL + pgvector stores and retrieves embedded chunks.
+- Hybrid analytics pattern: documentation questions use vector retrieval, while analytics questions use predefined sample outputs.
+- Evaluation and safety: tests check citations, retrieval behavior, analytics routing, and safe no-answer behavior.
 
 ## Hybrid RAG Architecture
 
@@ -179,6 +185,9 @@ These screenshots are captured from a local Streamlit run.
 
 ## Repository Structure
 
+<details>
+<summary>View repository structure</summary>
+
 ```text
 civiclens-rag-nyc311/
 |-- app/
@@ -211,3 +220,5 @@ civiclens-rag-nyc311/
 |-- requirements.txt
 `-- README.md
 ```
+
+</details>
