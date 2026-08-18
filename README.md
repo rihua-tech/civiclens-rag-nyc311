@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml/badge.svg)](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml)
 
-CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with cited document search, PostgreSQL + pgvector retrieval, simple predefined analytics summaries, and a local Streamlit UI.
+CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, PostgreSQL + pgvector retrieval, simple predefined analytics summaries, and a local Streamlit UI.
 
 The project is designed to show how an operational data platform can pair documentation retrieval with lightweight analytics answers while keeping outputs grounded, cited, and honest about current limitations.
 
@@ -10,6 +10,8 @@ The project is designed to show how an operational data platform can pair docume
 
 - Local Streamlit app runs with cited RAG answers and sample analytics answers.
 - PostgreSQL + pgvector stores and retrieves embedded document chunks.
+- A version-controlled source manifest validates provenance and normalized content hashes.
+- Markdown chunks preserve section titles, heading paths, stable IDs, and source metadata.
 - Local evaluation passes 18/18 RAG and analytics checks.
 - GitHub Actions runs offline-safe pytest and compileall checks.
 - No deployment, live NYC 311 data, default OpenAI calls, or production text-to-SQL claims.
@@ -50,25 +52,28 @@ Evaluation, pytest, and GitHub Actions validate retrieval behavior, citation cov
 
 ## Data Sources
 
-The first MVP uses a small curated set of local source documents and sample analytics outputs:
+The Phase 2 knowledge foundation uses a small curated set of local source documents and sample analytics outputs:
 
-- Project README and design docs
-- Data source notes and data dictionary context
-- RAG design and evaluation notes
+- `docs/knowledge/nyc311-service-request-fields.md`, derived from official NYC Open Data and NYC311 references
+- `docs/knowledge/civiclens-lakehouse-runbook.md`, clearly labeled as CivicLens project documentation
+- Project README, architecture, source, RAG design, and evaluation notes
 - Small sample CSV outputs in `data/sample_outputs/`
 
-The project does not ingest millions of raw NYC 311 records into the vector database. Structured metrics stay in SQL examples or small sample CSV outputs instead of being dumped into vector storage.
+`docs/knowledge/source-manifest.json` is the authoritative default ingestion inventory. It records source category, path/URL, version or retrieval date, and a normalized SHA-256 content hash. The Python ingestion API still accepts an explicit `source_paths` override for tests and compatible local workflows.
+
+The project does not ingest millions of raw NYC 311 records into the vector database. Structured metrics stay in SQL examples or small sample CSV outputs instead of being dumped into vector storage. See `docs/data-sources.md` for official source links and interpretation limits.
 
 ## How RAG Works
 
-1. Local source documents are loaded into a processed document store.
-2. Text is cleaned and split into chunks with metadata.
-3. Embeddings are generated locally by default with a deterministic embedding function.
-4. Chunks and embeddings are stored in PostgreSQL + pgvector.
-5. A user question is embedded with the same local embedding path.
-6. Relevant chunks are retrieved from pgvector.
-7. A context-only answer is generated from retrieved chunks.
-8. The UI displays the answer, source citations, and an optional retrieved chunk preview.
+1. Manifest-authorized source documents are hash-validated and loaded into a processed document store.
+2. Markdown is split within heading sections; plain text uses a compatible fallback.
+3. Stable document/chunk IDs, heading context, provenance, normalized content hashes, ingestion time, and `word_count` are preserved.
+4. Embeddings are generated locally by default with the existing deterministic embedding function.
+5. Chunks, metadata, and embeddings are stored in PostgreSQL + pgvector.
+6. A user question is embedded with the same local embedding path.
+7. Relevant chunks and their section/source metadata are retrieved from pgvector.
+8. A context-only answer is generated from retrieved chunks.
+9. The UI displays the answer, source citations, and an optional retrieved chunk preview.
 
 OpenAI-backed embeddings or answers are optional and disabled by default.
 
@@ -80,14 +85,16 @@ CivicLens uses a simple hybrid pattern:
 - Simple analytics questions use predefined sample CSV outputs.
 - The analytics path is a small keyword router, not a production text-to-SQL agent.
 
+In the current phase, "Hybrid RAG" means document RAG plus predefined analytics routing. Dense + lexical hybrid retrieval is planned for the next Advanced RAG stage and is not implemented yet.
+
 This keeps the local demo predictable and offline-friendly while still showing how RAG and analytics can work together in an operations copilot.
 
 ## Database Schema
 
 The local PostgreSQL schema includes:
 
-- `documents`: source document metadata such as document ID, source name, type, path, and ingestion timestamp.
-- `chunks`: chunk text, source metadata, token counts, and pgvector embeddings.
+- `documents`: stable document ID, source provenance, normalized content hash, and ingestion timestamp.
+- `chunks`: stable chunk ID, section/heading context, source provenance, normalized content hash, `word_count`, and pgvector embedding.
 - `queries`: a table reserved for logging user questions in future local experiments.
 - `retrieval_results`: a table reserved for storing retrieved chunk metadata and scores in future evaluation work.
 
@@ -107,6 +114,8 @@ python -m compileall app src tests
 ```
 
 `docker-compose.yml` starts PostgreSQL with pgvector using safe local defaults. The local evaluation command requires the database-backed retrieval path to be prepared with ingestion, chunking, and embeddings.
+
+Ingestion fails on a missing source or content-hash mismatch in the default manifest. Review intentional source changes and update the manifest hash before rerunning. `sql/schema.sql` safely adds Issue 8 metadata columns to an existing local database with idempotent `ADD COLUMN IF NOT EXISTS` statements; rerun ingestion, chunking, and embedding afterward. Retrieval ignores legacy chunk rows without current content hashes. The general migration framework remains deferred to Issue 13.
 
 ## Example Questions
 
@@ -160,16 +169,20 @@ These screenshots are captured from a local Streamlit run.
 - No default OpenAI calls.
 - Simple analytics router, not production text-to-SQL.
 - Small curated documents and sample outputs only.
+- Official source material is a curated field guide, not a live or complete copy of NYC 311 Open Data.
 - Evaluation is lightweight and does not use an LLM judge.
 
 ## Future Work
 
-- Add a production-style API layer.
-- Expand the curated document collection.
-- Improve evaluation coverage and scoring.
-- Optionally support real OpenAI embeddings or answers.
-- Add a hosted UI when deployment work is in scope.
-- Build a richer analytics layer beyond predefined sample outputs.
+- Add real local semantic embeddings, PostgreSQL lexical retrieval, hybrid fusion, and bounded reranking.
+- Expand evaluation coverage with retrieval metrics and reproducible reports.
+- Harden the existing opt-in OpenAI answer path with grounding and citation validation.
+- Add a versioned FastAPI application layer and reusable question orchestration.
+- Add privacy-conscious observability, feedback, and controlled database migrations.
+- Package the UI, API, and PostgreSQL/pgvector stack with Docker Compose.
+- Add a small cloud deployment proof.
+- Add safe typed analytics tools and a bounded LangGraph workflow.
+- Optionally demonstrate vector-store and RAG-framework portability.
 
 ## Tech Stack
 
@@ -201,6 +214,10 @@ civiclens-rag-nyc311/
 |   |-- architecture.md
 |   |-- data-sources.md
 |   |-- evaluation-notes.md
+|   |-- knowledge/
+|   |   |-- civiclens-lakehouse-runbook.md
+|   |   |-- nyc311-service-request-fields.md
+|   |   `-- source-manifest.json
 |   |-- portfolio-card.md
 |   `-- rag-design.md
 |-- sql/

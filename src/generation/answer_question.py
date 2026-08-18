@@ -148,13 +148,27 @@ def unique_sources(retrieved_chunks: list[dict]) -> list[dict]:
         if source_key in seen:
             continue
         seen.add(source_key)
-        sources.append(
-            {
-                "source_name": chunk["source_name"],
-                "source_path": chunk["source_path"],
-                "chunk_id": chunk["chunk_id"],
-            }
-        )
+        source = {
+            "source_name": chunk["source_name"],
+            "source_path": chunk["source_path"],
+            "chunk_id": chunk["chunk_id"],
+        }
+        for metadata_key in (
+            "source_type",
+            "source_category",
+            "source_url",
+            "source_version",
+            "source_retrieved_at",
+            "section_title",
+            "heading_path",
+            "content_hash",
+            "document_content_hash",
+            "chunking_config_hash",
+        ):
+            metadata_value = chunk.get(metadata_key)
+            if metadata_value not in (None, "", []):
+                source[metadata_key] = metadata_value
+        sources.append(source)
 
     return sources
 

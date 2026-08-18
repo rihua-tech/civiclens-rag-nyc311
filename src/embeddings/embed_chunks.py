@@ -151,20 +151,39 @@ def upsert_document(cursor, chunk: dict) -> None:
             document_id,
             source_name,
             source_type,
+            source_category,
             source_path,
+            source_url,
+            source_version,
+            source_retrieved_at,
+            content_hash,
+            chunking_config_hash,
             ingested_at
         )
-        VALUES (%s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (document_id) DO UPDATE SET
             source_name = EXCLUDED.source_name,
-            source_type = COALESCE(documents.source_type, EXCLUDED.source_type),
-            source_path = EXCLUDED.source_path
+            source_type = EXCLUDED.source_type,
+            source_category = EXCLUDED.source_category,
+            source_path = EXCLUDED.source_path,
+            source_url = EXCLUDED.source_url,
+            source_version = EXCLUDED.source_version,
+            source_retrieved_at = EXCLUDED.source_retrieved_at,
+            content_hash = EXCLUDED.content_hash,
+            chunking_config_hash = EXCLUDED.chunking_config_hash,
+            ingested_at = EXCLUDED.ingested_at
         """,
         (
             chunk["document_id"],
             chunk.get("source_name") or "unknown",
             chunk.get("source_type"),
+            chunk.get("source_category"),
             chunk.get("source_path"),
+            chunk.get("source_url"),
+            chunk.get("source_version"),
+            chunk.get("source_retrieved_at"),
+            chunk.get("document_content_hash"),
+            chunk.get("chunking_config_hash"),
             chunk.get("ingested_at"),
         ),
     )
@@ -179,18 +198,44 @@ def upsert_chunk(cursor, chunk: dict, embedding: list[float]) -> None:
             chunk_text,
             chunk_index,
             source_name,
+            source_type,
+            source_category,
             source_path,
-            token_count,
+            source_url,
+            source_version,
+            source_retrieved_at,
+            section_title,
+            heading_path,
+            word_count,
+            content_hash,
+            document_content_hash,
+            chunking_config_hash,
+            ingested_at,
             embedding
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector)
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s::vector
+        )
         ON CONFLICT (chunk_id) DO UPDATE SET
             document_id = EXCLUDED.document_id,
             chunk_text = EXCLUDED.chunk_text,
             chunk_index = EXCLUDED.chunk_index,
             source_name = EXCLUDED.source_name,
+            source_type = EXCLUDED.source_type,
+            source_category = EXCLUDED.source_category,
             source_path = EXCLUDED.source_path,
-            token_count = EXCLUDED.token_count,
+            source_url = EXCLUDED.source_url,
+            source_version = EXCLUDED.source_version,
+            source_retrieved_at = EXCLUDED.source_retrieved_at,
+            section_title = EXCLUDED.section_title,
+            heading_path = EXCLUDED.heading_path,
+            word_count = EXCLUDED.word_count,
+            content_hash = EXCLUDED.content_hash,
+            document_content_hash = EXCLUDED.document_content_hash,
+            chunking_config_hash = EXCLUDED.chunking_config_hash,
+            ingested_at = EXCLUDED.ingested_at,
             embedding = EXCLUDED.embedding
         """,
         (
@@ -199,8 +244,19 @@ def upsert_chunk(cursor, chunk: dict, embedding: list[float]) -> None:
             chunk["chunk_text"],
             chunk.get("chunk_index"),
             chunk.get("source_name"),
+            chunk.get("source_type"),
+            chunk.get("source_category"),
             chunk.get("source_path"),
-            chunk.get("token_count"),
+            chunk.get("source_url"),
+            chunk.get("source_version"),
+            chunk.get("source_retrieved_at"),
+            chunk.get("section_title"),
+            chunk.get("heading_path") or [],
+            chunk.get("word_count", chunk.get("token_count")),
+            chunk.get("content_hash"),
+            chunk.get("document_content_hash"),
+            chunk.get("chunking_config_hash"),
+            chunk.get("ingested_at"),
             vector_literal(embedding),
         ),
     )
