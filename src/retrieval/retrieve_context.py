@@ -28,7 +28,19 @@ def format_retrieval_rows(rows: Iterable[tuple]) -> list[dict]:
             document_id,
             chunk_text,
             source_name,
+            source_type,
+            source_category,
             source_path,
+            source_url,
+            source_version,
+            source_retrieved_at,
+            section_title,
+            heading_path,
+            word_count,
+            content_hash,
+            document_content_hash,
+            chunking_config_hash,
+            ingested_at,
             similarity_score,
         ) = row
         results.append(
@@ -37,7 +49,19 @@ def format_retrieval_rows(rows: Iterable[tuple]) -> list[dict]:
                 "document_id": document_id,
                 "chunk_text": chunk_text,
                 "source_name": source_name,
+                "source_type": source_type,
+                "source_category": source_category,
                 "source_path": source_path,
+                "source_url": source_url,
+                "source_version": source_version,
+                "source_retrieved_at": source_retrieved_at,
+                "section_title": section_title,
+                "heading_path": list(heading_path or []),
+                "word_count": word_count,
+                "content_hash": content_hash,
+                "document_content_hash": document_content_hash,
+                "chunking_config_hash": chunking_config_hash,
+                "ingested_at": ingested_at,
                 "similarity_score": float(similarity_score),
                 "rank": rank,
             }
@@ -72,19 +96,47 @@ def retrieve_context(
                     document_id,
                     chunk_text,
                     source_name,
+                    source_type,
+                    source_category,
                     source_path,
+                    source_url,
+                    source_version,
+                    source_retrieved_at,
+                    section_title,
+                    heading_path,
+                    word_count,
+                    content_hash,
+                    document_content_hash,
+                    chunking_config_hash,
+                    ingested_at,
                     similarity_score
                 FROM (
                     SELECT
-                        chunk_id,
-                        document_id,
-                        chunk_text,
-                        source_name,
-                        source_path,
-                        1 - (embedding <=> %s::vector) AS similarity_score
-                    FROM chunks
-                    WHERE embedding IS NOT NULL
-                    ORDER BY embedding <=> %s::vector
+                        c.chunk_id,
+                        c.document_id,
+                        c.chunk_text,
+                        c.source_name,
+                        c.source_type,
+                        c.source_category,
+                        c.source_path,
+                        c.source_url,
+                        c.source_version,
+                        c.source_retrieved_at,
+                        c.section_title,
+                        c.heading_path,
+                        c.word_count,
+                        c.content_hash,
+                        c.document_content_hash,
+                        c.chunking_config_hash,
+                        c.ingested_at,
+                        1 - (c.embedding <=> %s::vector) AS similarity_score
+                    FROM chunks AS c
+                    INNER JOIN documents AS d ON d.document_id = c.document_id
+                    WHERE c.embedding IS NOT NULL
+                      AND c.content_hash IS NOT NULL
+                      AND c.document_content_hash = d.content_hash
+                      AND c.chunking_config_hash = d.chunking_config_hash
+                    ORDER BY c.embedding <=> %s::vector
                     LIMIT %s
                 ) AS scored_chunks
                 WHERE similarity_score >= %s

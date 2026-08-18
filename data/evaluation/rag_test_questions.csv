@@ -5,10 +5,10 @@ Where do retrieval and cited answers fit in the project architecture?,architectu
 What is the retrieval scope?,architecture,cited_answer,docs/rag-design.md
 What is the no-answer rule?,runbook,cited_answer,docs/rag-design.md
 How do I run the local Streamlit hybrid flow?,runbook,cited_answer,docs/rag-design.md
-Which source provides field definitions for NYC 311 service request records?,data_dictionary,cited_answer,docs/data-sources.md
-Which fields describe request status agency location or timestamps?,data_dictionary,cited_answer,docs/data-sources.md
-What does closed_date mean?,data_dictionary,safe_no_answer,docs/data-sources.md
-What does complaint_type mean?,data_dictionary,safe_no_answer,docs/data-sources.md
+Which source provides field definitions for NYC 311 service request records?,data_dictionary,cited_answer,docs/knowledge/nyc311-service-request-fields.md
+Which fields describe request status agency location or timestamps?,data_dictionary,cited_answer,docs/knowledge/nyc311-service-request-fields.md
+What does closed_date mean?,data_dictionary,cited_answer,docs/knowledge/nyc311-service-request-fields.md
+What does complaint_type mean?,data_dictionary,cited_answer,docs/knowledge/nyc311-service-request-fields.md
 What are the top complaint types?,analytics,analytics_answer,data/sample_outputs/top_complaint_types.csv
 Which borough has the highest complaint volume?,analytics,analytics_answer,data/sample_outputs/requests_by_borough.csv
 Which agencies handle the most requests?,analytics,analytics_answer,data/sample_outputs/agency_request_volume.csv

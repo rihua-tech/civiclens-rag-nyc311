@@ -1,0 +1,80 @@
+{
+  "manifest_version": 1,
+  "hashing": {
+    "algorithm": "sha256",
+    "encoding": "utf-8",
+    "normalization": "Convert CRLF/CR to LF, remove trailing whitespace from each line, strip outer whitespace, then prefix the lowercase hexadecimal digest with sha256:."
+  },
+  "sources": [
+    {
+      "source_name": "NYC 311 Service Request Field Guide",
+      "source_type": "markdown",
+      "source_category": "external_nyc311",
+      "path": "docs/knowledge/nyc311-service-request-fields.md",
+      "source_url": "https://data.cityofnewyork.us/d/erm2-nwe9",
+      "source_version": "NYC Open Data dataset erm2-nwe9 with December 2025 label updates",
+      "retrieved_at": "2026-08-17",
+      "content_hash": "sha256:22aa501cd33da721b2b22d3dafd98cd4219ee092431ebb5a932c37365b6ae918"
+    },
+    {
+      "source_name": "CivicLens Lakehouse Context and Local RAG Runbook",
+      "source_type": "markdown",
+      "source_category": "civiclens_project",
+      "path": "docs/knowledge/civiclens-lakehouse-runbook.md",
+      "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/knowledge/civiclens-lakehouse-runbook.md",
+      "source_version": "Issue 8 curated corpus",
+      "retrieved_at": null,
+      "content_hash": "sha256:57e038bf85dfb304e3359cdd6b7ed85bae3989c61fec43d6a884ffd22538bef7"
+    },
+    {
+      "source_name": "CivicLens README",
+      "source_type": "markdown",
+      "source_category": "civiclens_project",
+      "path": "README.md",
+      "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/README.md",
+      "source_version": "Issue 8 curated corpus",
+      "retrieved_at": null,
+      "content_hash": "sha256:9413b5354d7a203819c4aa22006ec955fe1861f6946a5735aa3a58b48c87e394"
+    },
+    {
+      "source_name": "CivicLens Data Sources",
+      "source_type": "markdown",
+      "source_category": "civiclens_project",
+      "path": "docs/data-sources.md",
+      "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/data-sources.md",
+      "source_version": "Issue 8 curated corpus",
+      "retrieved_at": null,
+      "content_hash": "sha256:ac369789ff6cbc03e9318b0c3f4205e8c97a900e82ca58e48e76be09048e3071"
+    },
+    {
+      "source_name": "CivicLens Architecture",
+      "source_type": "markdown",
+      "source_category": "civiclens_project",
+      "path": "docs/architecture.md",
+      "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/architecture.md",
+      "source_version": "Issue 8 curated corpus",
+      "retrieved_at": null,
+      "content_hash": "sha256:ad9b91706e7f5b2f24827493518eb9349951bdbe19d35ed53c07155ed69d7631"
+    },
+    {
+      "source_name": "CivicLens RAG Design",
+      "source_type": "markdown",
+      "source_category": "civiclens_project",
+      "path": "docs/rag-design.md",
+      "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/rag-design.md",
+      "source_version": "Issue 8 curated corpus",
+      "retrieved_at": null,
+      "content_hash": "sha256:fab4b78d81b4c050ab9abab117125501c148639e62a52bc01e03d0fa39df1bc9"
+    },
+    {
+      "source_name": "CivicLens Evaluation Notes",
+      "source_type": "markdown",
+      "source_category": "civiclens_project",
+      "path": "docs/evaluation-notes.md",
+      "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/evaluation-notes.md",
+      "source_version": "Issue 8 curated corpus",
+      "retrieved_at": null,
+      "content_hash": "sha256:ec1f0e0189d3394fa45b5be8b50a59d2a353c56585db810d5467c96aee03934f"
+    }
+  ]
+}

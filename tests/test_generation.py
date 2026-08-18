@@ -47,6 +47,33 @@ def test_cited_answer_includes_sources_section():
     assert "architecture.md - docs/architecture.md - chunk chunk_1" in formatted
 
 
+def test_citation_sources_preserve_issue8_section_and_provenance_metadata():
+    chunk = sample_chunk()
+    chunk.update(
+        {
+            "source_category": "civiclens_project",
+            "source_url": "https://example.test/architecture",
+            "source_version": "Issue 8 curated corpus",
+            "section_title": "Architecture Boundary",
+            "heading_path": ["Runbook", "Architecture Boundary"],
+            "content_hash": "sha256:chunk",
+            "document_content_hash": "sha256:document",
+            "chunking_config_hash": "sha256:chunking-config",
+        }
+    )
+
+    response = local_answer("What is the NYC 311 Lakehouse architecture?", [chunk])
+
+    source = response["sources"][0]
+    assert source["source_category"] == "civiclens_project"
+    assert source["source_url"] == "https://example.test/architecture"
+    assert source["section_title"] == "Architecture Boundary"
+    assert source["heading_path"] == ["Runbook", "Architecture Boundary"]
+    assert source["content_hash"] == "sha256:chunk"
+    assert source["document_content_hash"] == "sha256:document"
+    assert source["chunking_config_hash"] == "sha256:chunking-config"
+
+
 def test_rag_answer_removes_raw_markdown_heading_clutter():
     response = local_answer("What is the NYC 311 Lakehouse architecture?", [architecture_markdown_chunk()])
 

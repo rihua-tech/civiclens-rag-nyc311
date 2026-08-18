@@ -6,6 +6,8 @@ Issue 6 adds a small local evaluation harness for the CivicLens RAG development 
 
 The evaluation dataset lives at `data/evaluation/rag_test_questions.csv`. Each row includes a question, category, expected behavior, and optional source hint.
 
+Issue 8 updates the existing field-definition cases to expect cited answers from `docs/knowledge/nyc311-service-request-fields.md`. This is a fixture/source correction for the new curated corpus, not a new metric or benchmark framework.
+
 `python -m src.evaluation.evaluate_rag` checks:
 
 - Answers are not empty.
