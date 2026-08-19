@@ -7,6 +7,17 @@ from dataclasses import dataclass
 from urllib.parse import quote_plus, urlsplit, urlunsplit
 
 
+DETERMINISTIC_PROVIDER = "deterministic"
+DETERMINISTIC_MODEL = "local-deterministic-1536"
+DETERMINISTIC_DIMENSION = 1536
+SEMANTIC_PROVIDER = "sentence_transformers"
+DEFAULT_SEMANTIC_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+DEFAULT_SEMANTIC_DIMENSION = 384
+OPENAI_PROVIDER = "openai"
+DEFAULT_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
+
+
 def load_dotenv_if_available() -> None:
     try:
         from dotenv import load_dotenv
@@ -21,6 +32,19 @@ def env_flag(name: str, default: bool = False) -> bool:
     if raw_value is None:
         return default
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than 0")
+    return value
 
 
 def build_database_url() -> str:
@@ -51,16 +75,66 @@ class Settings:
     use_openai_embeddings: bool
     use_openai_answers: bool
     openai_api_key: str
+    embedding_provider: str = ""
+    embedding_dimension: int = 0
+    retrieval_mode: str = "semantic"
+    semantic_candidate_count: int = 20
+    lexical_candidate_count: int = 20
+    rrf_k: int = 60
+    reranking_enabled: bool = False
+    reranker_model: str = DEFAULT_RERANKER_MODEL
+    rerank_candidate_limit: int = 20
 
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv_if_available()
+        use_openai_embeddings = env_flag("USE_OPENAI_EMBEDDINGS", default=False)
+        configured_provider = os.getenv("EMBEDDING_PROVIDER", "").strip().lower()
+        configured_model = os.getenv("EMBEDDING_MODEL", "").strip()
+        legacy_openai_override = (
+            use_openai_embeddings and configured_provider != OPENAI_PROVIDER
+        )
+
+        if legacy_openai_override:
+            embedding_provider = OPENAI_PROVIDER
+            embedding_model = DEFAULT_OPENAI_EMBEDDING_MODEL
+            default_dimension = DETERMINISTIC_DIMENSION
+        elif configured_provider == OPENAI_PROVIDER:
+            embedding_provider = OPENAI_PROVIDER
+            embedding_model = configured_model or DEFAULT_OPENAI_EMBEDDING_MODEL
+            if embedding_model == DETERMINISTIC_MODEL:
+                embedding_model = DEFAULT_OPENAI_EMBEDDING_MODEL
+            default_dimension = DETERMINISTIC_DIMENSION
+        elif configured_provider == DETERMINISTIC_PROVIDER or (
+            not configured_provider and configured_model == DETERMINISTIC_MODEL
+        ):
+            embedding_provider = DETERMINISTIC_PROVIDER
+            embedding_model = configured_model or DETERMINISTIC_MODEL
+            default_dimension = DETERMINISTIC_DIMENSION
+        else:
+            embedding_provider = configured_provider or SEMANTIC_PROVIDER
+            embedding_model = configured_model or DEFAULT_SEMANTIC_MODEL
+            default_dimension = DEFAULT_SEMANTIC_DIMENSION
+
         return cls(
             database_url=os.getenv("DATABASE_URL") or build_database_url(),
-            embedding_model=os.getenv("EMBEDDING_MODEL", "local-deterministic-1536"),
-            use_openai_embeddings=env_flag("USE_OPENAI_EMBEDDINGS", default=False),
+            embedding_model=embedding_model,
+            use_openai_embeddings=use_openai_embeddings,
             use_openai_answers=env_flag("USE_OPENAI_ANSWERS", default=False),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+            embedding_provider=embedding_provider,
+            embedding_dimension=(
+                default_dimension
+                if legacy_openai_override
+                else env_int("EMBEDDING_DIMENSION", default_dimension)
+            ),
+            retrieval_mode=os.getenv("RETRIEVAL_MODE", "hybrid").strip().lower(),
+            semantic_candidate_count=env_int("SEMANTIC_CANDIDATE_COUNT", 20),
+            lexical_candidate_count=env_int("LEXICAL_CANDIDATE_COUNT", 20),
+            rrf_k=env_int("RRF_K", 60),
+            reranking_enabled=env_flag("RERANKING_ENABLED", default=False),
+            reranker_model=os.getenv("RERANKER_MODEL", DEFAULT_RERANKER_MODEL).strip(),
+            rerank_candidate_limit=env_int("RERANK_CANDIDATE_LIMIT", 20),
         )
 
     @property

@@ -11,9 +11,9 @@ CivicLens demonstrates an AI application built on trusted data-engineering asset
 1. The source manifest authorizes a small inventory of repository documents.
 2. Ingestion normalizes content and records source provenance and a content hash.
 3. Markdown chunking stays within heading sections and carries the heading path into chunk metadata.
-4. The existing deterministic embedding path produces offline-compatible vectors.
-5. PostgreSQL with pgvector stores document, chunk, provenance, and embedding fields.
-6. Native CivicLens retrieval returns cited chunks for context-only answers.
+4. The configurable provider uses real local Sentence Transformers embeddings by default; deterministic embeddings remain the offline test/CI fallback.
+5. PostgreSQL with pgvector stores document, chunk, provenance, embedding-profile, and vector fields.
+6. Native CivicLens retrieval combines pgvector semantic search with PostgreSQL full-text search and returns cited chunks for context-only answers.
 
 Structured sample analytics remain in `data/sample_outputs/` and use predefined routing. Large raw NYC 311 service-request datasets do not belong in the RAG knowledge corpus.
 
@@ -25,12 +25,12 @@ From the repository root:
 python -m src.ingestion.load_documents
 python -m src.chunking.chunk_documents
 docker compose up -d
-python -m src.embeddings.embed_chunks
+python -m src.embeddings.embed_chunks --reindex
 ```
 
 The ingestion command uses `docs/knowledge/source-manifest.json` by default. A manifest content-hash mismatch is a deliberate failure: review the source change and update its manifest hash before ingesting it.
 
-The embedding command applies the idempotent schema in `sql/schema.sql` before upserting documents and chunks. Existing local databases can therefore add Issue 8 metadata columns without a general migration framework. Re-run ingestion, chunking, and embedding to write metadata-complete current chunks. Retrieval excludes legacy rows without current content hashes.
+The embedding command applies the idempotent schema in `sql/schema.sql` before upserting documents and chunks. Existing local databases can therefore add Issue 8 metadata and narrowly scoped Issue 9 retrieval columns without a general migration framework. The first Issue 9 semantic run uses `--reindex` to clear incompatible old vectors, rebuild all current chunks with one recorded provider/model/dimension, and rebuild the retrieval indexes. Later refreshes with the same profile can omit `--reindex`. Retrieval excludes legacy rows without current content hashes.
 
 ## Troubleshooting Checks
 
@@ -57,11 +57,14 @@ The embedding command applies the idempotent schema in `sql/schema.sql` before u
 
 - Verify the relevant document is present in the manifest and processed files.
 - Verify embeddings were refreshed after content or chunking changes.
-- Keep semantic models, lexical retrieval, hybrid fusion, and reranking out of this runbook; those are later roadmap work.
+- Verify the printed embedding provider/model/dimension matches the single profile stored in PostgreSQL.
+- Use `RETRIEVAL_MODE=semantic` to isolate dense retrieval or `RETRIEVAL_MODE=hybrid` to include PostgreSQL lexical retrieval and RRF.
+- Keep reranking disabled while diagnosing base retrieval; when enabled, it only processes the configured bounded candidate set.
 
 ## Safety and Limitations
 
-- The workflow is local and offline-friendly by default.
+- The real semantic and reranker models may download weights on their first explicit local use.
+- Automated tests and CI explicitly use the deterministic provider and never download model weights.
 - OpenAI integrations remain optional and are not required by ingestion or CI.
 - The knowledge base is curated documentation, not a live NYC 311 feed.
-- The schema upgrade is intentionally limited to Issue 8 metadata columns; the general migration framework belongs to Issue 13.
+- The schema upgrade is intentionally limited to Issue 8 metadata and Issue 9 retrieval columns; the general migration framework belongs to Issue 13.

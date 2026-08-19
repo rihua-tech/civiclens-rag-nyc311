@@ -103,6 +103,19 @@ def test_weak_retrieval_returns_safe_no_answer():
     assert response["sources"]
 
 
+def test_local_answer_accepts_lexical_only_result_diagnostics():
+    chunk = sample_chunk()
+    chunk["similarity_score"] = None
+    chunk["semantic_score"] = None
+    chunk["lexical_score"] = 0.7
+    chunk["retrieval_mode"] = "hybrid"
+
+    response = local_answer("What is the NYC 311 architecture?", [chunk])
+
+    assert response["answer"] != NO_ANSWER
+    assert response["sources"][0]["chunk_id"] == "chunk_1"
+
+
 def test_answer_generation_does_not_require_openai_by_default(monkeypatch):
     monkeypatch.delenv("USE_OPENAI_ANSWERS", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

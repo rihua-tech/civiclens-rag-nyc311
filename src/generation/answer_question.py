@@ -7,7 +7,7 @@ import re
 
 from src.common.config import Settings
 from src.embeddings.embed_chunks import EMBEDDING_STOPWORDS, TOKEN_PATTERN
-from src.retrieval.retrieve_context import retrieve_context
+from src.retrieval.retrieve_context import DEFAULT_MIN_SIMILARITY, retrieve_context
 
 
 NO_ANSWER = "I do not have enough source context to answer that."
@@ -61,6 +61,20 @@ def question_terms(question: str) -> set[str]:
         for token in TOKEN_PATTERN.findall(question.lower())
         if token not in ANSWER_STOPWORDS
     }
+
+
+def retrieval_score(chunk: dict) -> float:
+    for field in (
+        "reranker_score",
+        "fusion_score",
+        "semantic_score",
+        "lexical_score",
+        "similarity_score",
+    ):
+        value = chunk.get(field)
+        if value is not None:
+            return float(value)
+    return 0.0
 
 
 def normalize_heading_text(text: str) -> str:
@@ -258,7 +272,7 @@ def select_answer_sentences(question: str, retrieved_chunks: list[dict], limit: 
             scored_sentences.append(
                 (
                     overlap,
-                    float(chunk.get("similarity_score", 0.0)),
+                    retrieval_score(chunk),
                     source_number,
                     sentence,
                 )
@@ -355,7 +369,7 @@ def openai_answer(question: str, retrieved_chunks: list[dict], settings: Setting
 def answer_question(
     question: str,
     top_k: int = 5,
-    min_similarity: float = 0.05,
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
     settings: Settings | None = None,
 ) -> dict:
     active_settings = settings or Settings.from_env()

@@ -14,7 +14,13 @@ from pathlib import Path
 from typing import Any
 
 from src.analytics.simple_analytics import answer_analytics_question, looks_like_analytics_question
-from src.common.config import Settings
+from src.common.config import (
+    DETERMINISTIC_DIMENSION,
+    DETERMINISTIC_MODEL,
+    DETERMINISTIC_PROVIDER,
+    OPENAI_PROVIDER,
+    Settings,
+)
 from src.generation.answer_question import NO_ANSWER, answer_question
 
 
@@ -72,12 +78,37 @@ def load_evaluation_questions(path: str | Path = DEFAULT_EVALUATION_PATH) -> lis
 
 def offline_settings(settings: Settings | None = None) -> Settings:
     active_settings = settings or Settings.from_env()
+    use_deterministic_fallback = (
+        active_settings.use_openai_embeddings
+        or active_settings.embedding_provider == OPENAI_PROVIDER
+    )
     return Settings(
         database_url=active_settings.database_url,
-        embedding_model=active_settings.embedding_model,
+        embedding_model=(
+            DETERMINISTIC_MODEL
+            if use_deterministic_fallback
+            else active_settings.embedding_model
+        ),
         use_openai_embeddings=False,
         use_openai_answers=False,
         openai_api_key="",
+        embedding_provider=(
+            DETERMINISTIC_PROVIDER
+            if use_deterministic_fallback
+            else active_settings.embedding_provider
+        ),
+        embedding_dimension=(
+            DETERMINISTIC_DIMENSION
+            if use_deterministic_fallback
+            else active_settings.embedding_dimension
+        ),
+        retrieval_mode=active_settings.retrieval_mode,
+        semantic_candidate_count=active_settings.semantic_candidate_count,
+        lexical_candidate_count=active_settings.lexical_candidate_count,
+        rrf_k=active_settings.rrf_k,
+        reranking_enabled=active_settings.reranking_enabled,
+        reranker_model=active_settings.reranker_model,
+        rerank_candidate_limit=active_settings.rerank_candidate_limit,
     )
 
 

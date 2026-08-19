@@ -1,29 +1,43 @@
-from src.retrieval.retrieve_context import format_cli_results, format_retrieval_rows, validate_top_k
+import sys
+from types import SimpleNamespace
+
+from src.common.config import Settings
+from src.embeddings.providers import EmbeddingSpec
+from src.retrieval.retrieve_context import (
+    format_cli_results,
+    format_retrieval_rows,
+    lexical_query_text,
+    retrieve_lexical_context,
+    retrieve_semantic_context,
+    validate_top_k,
+)
+
+
+def retrieval_row(score: float = 0.42) -> tuple:
+    return (
+        "chunk_1",
+        "doc_1",
+        "Chunk text about NYC 311 architecture.",
+        "architecture.md",
+        "markdown",
+        "civiclens_project",
+        "docs/architecture.md",
+        "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/architecture.md",
+        "Issue 8 curated corpus",
+        "2026-08-17",
+        "Architecture Boundary",
+        ["CivicLens Runbook", "Architecture Boundary"],
+        6,
+        "sha256:chunk",
+        "sha256:document",
+        "sha256:chunking-config",
+        "2026-08-17T00:00:00Z",
+        score,
+    )
 
 
 def test_retriever_result_formatting_preserves_metadata():
-    rows = [
-        (
-            "chunk_1",
-            "doc_1",
-            "Chunk text about NYC 311 architecture.",
-            "architecture.md",
-            "markdown",
-            "civiclens_project",
-            "docs/architecture.md",
-            "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/architecture.md",
-            "Issue 8 curated corpus",
-            "2026-08-17",
-            "Architecture Boundary",
-            ["CivicLens Runbook", "Architecture Boundary"],
-            6,
-            "sha256:chunk",
-            "sha256:document",
-            "sha256:chunking-config",
-            "2026-08-17T00:00:00Z",
-            0.42,
-        )
-    ]
+    rows = [retrieval_row()]
 
     results = format_retrieval_rows(rows)
 
@@ -47,6 +61,14 @@ def test_retriever_result_formatting_preserves_metadata():
             "chunking_config_hash": "sha256:chunking-config",
             "ingested_at": "2026-08-17T00:00:00Z",
             "similarity_score": 0.42,
+            "semantic_score": 0.42,
+            "semantic_rank": 1,
+            "lexical_score": None,
+            "lexical_rank": None,
+            "fusion_score": None,
+            "reranker_score": None,
+            "pre_rerank_rank": None,
+            "retrieval_mode": "semantic",
             "rank": 1,
         }
     ]
@@ -84,3 +106,152 @@ def test_cli_formatting_includes_similarity_and_source_metadata():
     assert "score=0.3100" in output
     assert "architecture.md" in output
     assert "chunk_1" in output
+
+
+class FakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, query, parameters=None):
+        self.calls.append((query, parameters))
+
+    def fetchall(self):
+        return self.rows
+
+
+class FakeConnection:
+    def __init__(self, cursor):
+        self.fake_cursor = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def cursor(self):
+        return self.fake_cursor
+
+
+class SequencedCursor(FakeCursor):
+    def __init__(self, responses):
+        super().__init__([])
+        self.responses = list(responses)
+
+    def fetchall(self):
+        return self.responses.pop(0)
+
+
+class FakeSemanticProvider:
+    spec = EmbeddingSpec(
+        "sentence_transformers",
+        "sentence-transformers/all-MiniLM-L6-v2",
+        384,
+    )
+
+    def embed(self, text):
+        assert text == "What does complaint type mean?"
+        return [0.0] * 384
+
+    def embed_many(self, texts):
+        return [self.embed(text) for text in texts]
+
+
+def test_postgresql_lexical_retrieval_is_parameterized_and_preserves_provenance(
+    monkeypatch,
+):
+    cursor = FakeCursor([retrieval_row(0.75)])
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(connect=lambda _: FakeConnection(cursor)),
+    )
+    settings = Settings(
+        database_url="postgresql://example",
+        embedding_model="local-deterministic-1536",
+        use_openai_embeddings=False,
+        use_openai_answers=False,
+        openai_api_key="",
+    )
+
+    results = retrieve_lexical_context(
+        "complaint_type",
+        candidate_limit=10,
+        settings=settings,
+    )
+
+    query, parameters = cursor.calls[0]
+    assert "websearch_to_tsquery('english', %s)" in query
+    assert "c.search_vector @@ lexical_query.query" in query
+    assert "c.document_content_hash = d.content_hash" in query
+    assert parameters == ("complaint_type", 10)
+    assert results[0]["lexical_score"] == 0.75
+    assert results[0]["lexical_rank"] == 1
+    assert results[0]["source_category"] == "civiclens_project"
+    assert results[0]["section_title"] == "Architecture Boundary"
+    assert results[0]["heading_path"] == [
+        "CivicLens Runbook",
+        "Architecture Boundary",
+    ]
+
+
+def test_lexical_query_keeps_exact_identifier_and_removes_question_filler():
+    assert lexical_query_text("What does complaint_type mean?") == "complaint_type"
+
+
+def test_lexical_query_terms_are_bounded():
+    query = " ".join(f"term{index}" for index in range(20))
+
+    assert len(lexical_query_text(query).split()) == 12
+
+
+def test_semantic_retrieval_validates_profile_dimension_and_uses_pgvector(
+    monkeypatch,
+):
+    profile = (
+        "sentence_transformers",
+        "sentence-transformers/all-MiniLM-L6-v2",
+        384,
+    )
+    cursor = SequencedCursor([[profile], [retrieval_row(0.81)]])
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg",
+        SimpleNamespace(connect=lambda _: FakeConnection(cursor)),
+    )
+    settings = Settings(
+        database_url="postgresql://example",
+        embedding_model=profile[1],
+        use_openai_embeddings=False,
+        use_openai_answers=False,
+        openai_api_key="",
+        embedding_provider=profile[0],
+        embedding_dimension=profile[2],
+    )
+
+    results = retrieve_semantic_context(
+        "What does complaint type mean?",
+        candidate_limit=12,
+        settings=settings,
+        provider=FakeSemanticProvider(),
+    )
+
+    assert len(cursor.calls) == 2
+    profile_query, _ = cursor.calls[0]
+    semantic_query, parameters = cursor.calls[1]
+    assert "SELECT DISTINCT" in profile_query
+    assert "c.semantic_embedding <=> %s::vector" in semantic_query
+    assert "vector_dims(c.semantic_embedding) = %s" in semantic_query
+    assert parameters[1:4] == profile
+    assert parameters[4] == 384
+    assert parameters[-2:] == (12, 0.25)
+    assert results[0]["semantic_score"] == 0.81
+    assert results[0]["retrieval_mode"] == "semantic"
+    assert results[0]["source_path"] == "docs/architecture.md"

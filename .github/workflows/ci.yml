@@ -10,8 +10,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
+      EMBEDDING_PROVIDER: "deterministic"
+      EMBEDDING_MODEL: "local-deterministic-1536"
+      EMBEDDING_DIMENSION: "1536"
+      RETRIEVAL_MODE: "semantic"
+      RERANKING_ENABLED: "false"
       USE_OPENAI_EMBEDDINGS: "false"
       USE_OPENAI_ANSWERS: "false"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
 
     steps:
       - name: Check out repo

@@ -2,52 +2,40 @@
 
 from __future__ import annotations
 
-import hashlib
+import argparse
 import json
-import math
-import re
 from pathlib import Path
 from typing import Iterable
 
-from src.common.config import Settings
+from src.common.config import (
+    DETERMINISTIC_DIMENSION,
+    DETERMINISTIC_MODEL,
+    DETERMINISTIC_PROVIDER,
+    SEMANTIC_PROVIDER,
+    Settings,
+)
+from src.embeddings.providers import (
+    EmbeddingCompatibilityError,
+    EmbeddingProvider,
+    EmbeddingSpec,
+    create_embedding_provider,
+    validate_embedding,
+)
+from src.embeddings.providers.deterministic import (
+    EMBEDDING_STOPWORDS as EMBEDDING_STOPWORDS,
+    TOKEN_PATTERN as TOKEN_PATTERN,
+    deterministic_embedding,
+    tokenize_for_embedding as tokenize_for_embedding,
+)
+from src.embeddings.providers.openai_provider import OpenAIEmbeddingProvider
 
 
 DEFAULT_INPUT_PATH = Path("data/processed/chunks.jsonl")
 DEFAULT_SCHEMA_PATH = Path("sql/schema.sql")
-LOCAL_EMBEDDING_MODEL = "local-deterministic-1536"
-EMBEDDING_DIMENSIONS = 1536
-TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+")
-EMBEDDING_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "by",
-    "for",
-    "from",
-    "how",
-    "in",
-    "into",
-    "is",
-    "it",
-    "of",
-    "on",
-    "or",
-    "that",
-    "the",
-    "this",
-    "to",
-    "what",
-    "when",
-    "where",
-    "which",
-    "who",
-    "will",
-    "with",
-}
+LOCAL_EMBEDDING_MODEL = DETERMINISTIC_MODEL
+EMBEDDING_DIMENSIONS = DETERMINISTIC_DIMENSION
+LEGACY_VECTOR_COLUMN = "embedding"
+SEMANTIC_VECTOR_COLUMN = "semantic_embedding"
 
 
 def project_root() -> Path:
@@ -74,68 +62,111 @@ def load_chunks(path: str | Path) -> list[dict]:
     return chunks
 
 
-def tokenize_for_embedding(text: str) -> list[str]:
-    return [
-        token
-        for token in TOKEN_PATTERN.findall(text.lower())
-        if token not in EMBEDDING_STOPWORDS
-    ]
-
-
 def local_deterministic_embedding(text: str, dimensions: int = EMBEDDING_DIMENSIONS) -> list[float]:
-    if dimensions <= 0:
-        raise ValueError("dimensions must be greater than 0")
-
-    tokens = tokenize_for_embedding(text)
-    if not tokens:
-        tokens = [hashlib.sha256(text.encode("utf-8")).hexdigest()]
-
-    embedding = [0.0] * dimensions
-    for token in tokens:
-        digest = hashlib.sha256(token.encode("utf-8")).digest()
-        index = int.from_bytes(digest[:4], byteorder="big", signed=False) % dimensions
-        sign = 1.0 if digest[4] % 2 == 0 else -1.0
-        embedding[index] += sign
-
-    norm = math.sqrt(sum(value * value for value in embedding))
-    if norm == 0:
-        return embedding
-
-    return [round(value / norm, 8) for value in embedding]
+    return deterministic_embedding(text, dimensions)
 
 
 def openai_embedding(text: str, settings: Settings) -> list[float]:
-    if not settings.openai_api_key:
-        raise RuntimeError("OPENAI_API_KEY is required when USE_OPENAI_EMBEDDINGS=true")
-
     model = settings.embedding_model
     if model == LOCAL_EMBEDDING_MODEL:
         model = "text-embedding-3-small"
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key)
-    response = client.embeddings.create(model=model, input=text)
-    embedding = [float(value) for value in response.data[0].embedding]
-
-    if len(embedding) != EMBEDDING_DIMENSIONS:
-        raise ValueError(
-            f"Embedding model returned {len(embedding)} dimensions; "
-            f"expected {EMBEDDING_DIMENSIONS}"
-        )
-
-    return embedding
+    dimension = settings.embedding_dimension or EMBEDDING_DIMENSIONS
+    return OpenAIEmbeddingProvider(
+        api_key=settings.openai_api_key,
+        model_name=model,
+        dimension=dimension,
+    ).embed(text)
 
 
-def generate_embedding(text: str, settings: Settings | None = None) -> list[float]:
+def generate_embedding(
+    text: str,
+    settings: Settings | None = None,
+    provider: EmbeddingProvider | None = None,
+) -> list[float]:
     active_settings = settings or Settings.from_env()
-    if active_settings.use_openai_embeddings:
-        return openai_embedding(text, active_settings)
-    return local_deterministic_embedding(text)
+    active_provider = provider or create_embedding_provider(active_settings)
+    return active_provider.embed(text)
 
 
 def vector_literal(embedding: Iterable[float]) -> str:
     return "[" + ",".join(format(float(value), ".10g") for value in embedding) + "]"
+
+
+def vector_column_for_spec(spec: EmbeddingSpec) -> str:
+    if spec.provider == SEMANTIC_PROVIDER:
+        if spec.dimension != 384:
+            raise EmbeddingCompatibilityError(
+                f"The local semantic pgvector column is vector(384), but provider "
+                f"{spec.provider!r} model {spec.model!r} is configured for "
+                f"{spec.dimension} dimensions. Update the narrowly scoped Issue 9 schema "
+                "before running the documented full reindex."
+            )
+        return SEMANTIC_VECTOR_COLUMN
+    if spec.dimension != EMBEDDING_DIMENSIONS:
+        raise EmbeddingCompatibilityError(
+            f"The backward-compatible pgvector column is vector({EMBEDDING_DIMENSIONS}), "
+            f"but provider {spec.provider!r} model {spec.model!r} is configured for "
+            f"{spec.dimension} dimensions."
+        )
+    return LEGACY_VECTOR_COLUMN
+
+
+def fetch_embedding_profiles(cursor) -> set[tuple[str | None, str | None, int | None]]:
+    cursor.execute(
+        """
+        SELECT DISTINCT
+            c.embedding_provider,
+            c.embedding_model,
+            c.embedding_dimension
+        FROM chunks AS c
+        INNER JOIN documents AS d ON d.document_id = c.document_id
+        WHERE (c.embedding IS NOT NULL OR c.semantic_embedding IS NOT NULL)
+          AND c.content_hash IS NOT NULL
+          AND c.document_content_hash = d.content_hash
+          AND c.chunking_config_hash = d.chunking_config_hash
+        """
+    )
+    return {tuple(row) for row in cursor.fetchall()}
+
+
+def validate_stored_embedding_profiles(
+    profiles: set[tuple[str | None, str | None, int | None]],
+    active_spec: EmbeddingSpec,
+) -> None:
+    expected = (active_spec.provider, active_spec.model, active_spec.dimension)
+    incompatible = profiles.difference({expected})
+    if incompatible:
+        formatted = ", ".join(repr(profile) for profile in sorted(incompatible, key=repr))
+        raise EmbeddingCompatibilityError(
+            "Stored current chunks use an incompatible or unrecorded embedding profile: "
+            f"{formatted}. Active profile is {expected!r}. Run "
+            "`python -m src.embeddings.embed_chunks --reindex` to clear all old vectors "
+            "and rebuild them with one provider/model/dimension."
+        )
+
+
+def clear_stored_embeddings(cursor) -> None:
+    cursor.execute(
+        """
+        UPDATE chunks
+        SET embedding = NULL,
+            semantic_embedding = NULL,
+            embedding_provider = NULL,
+            embedding_model = NULL,
+            embedding_dimension = NULL
+        WHERE embedding IS NOT NULL
+           OR semantic_embedding IS NOT NULL
+           OR embedding_provider IS NOT NULL
+           OR embedding_model IS NOT NULL
+           OR embedding_dimension IS NOT NULL
+        """
+    )
+
+
+def rebuild_retrieval_indexes(cursor) -> None:
+    cursor.execute("REINDEX INDEX idx_chunks_semantic_embedding_hnsw")
+    cursor.execute("REINDEX INDEX idx_chunks_search_vector_gin")
+    cursor.execute("ANALYZE chunks")
 
 
 def ensure_schema(connection, schema_path: Path) -> None:
@@ -189,7 +220,30 @@ def upsert_document(cursor, chunk: dict) -> None:
     )
 
 
-def upsert_chunk(cursor, chunk: dict, embedding: list[float]) -> None:
+def upsert_chunk(
+    cursor,
+    chunk: dict,
+    embedding: list[float],
+    embedding_spec: EmbeddingSpec | None = None,
+) -> None:
+    spec = embedding_spec or EmbeddingSpec(
+        DETERMINISTIC_PROVIDER,
+        LOCAL_EMBEDDING_MODEL,
+        EMBEDDING_DIMENSIONS,
+    )
+    if embedding_spec is None:
+        vector_column = LEGACY_VECTOR_COLUMN
+        embedding_values = [float(value) for value in embedding]
+    else:
+        vector_column = vector_column_for_spec(spec)
+        embedding_values = validate_embedding(embedding, spec)
+    legacy_vector = (
+        vector_literal(embedding_values) if vector_column == LEGACY_VECTOR_COLUMN else None
+    )
+    semantic_vector = (
+        vector_literal(embedding_values) if vector_column == SEMANTIC_VECTOR_COLUMN else None
+    )
+
     cursor.execute(
         """
         INSERT INTO chunks (
@@ -211,12 +265,16 @@ def upsert_chunk(cursor, chunk: dict, embedding: list[float]) -> None:
             document_content_hash,
             chunking_config_hash,
             ingested_at,
-            embedding
+            embedding_provider,
+            embedding_model,
+            embedding_dimension,
+            embedding,
+            semantic_embedding
         )
         VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s::vector
+            %s, %s, %s, %s, %s, %s::vector, %s::vector
         )
         ON CONFLICT (chunk_id) DO UPDATE SET
             document_id = EXCLUDED.document_id,
@@ -236,7 +294,11 @@ def upsert_chunk(cursor, chunk: dict, embedding: list[float]) -> None:
             document_content_hash = EXCLUDED.document_content_hash,
             chunking_config_hash = EXCLUDED.chunking_config_hash,
             ingested_at = EXCLUDED.ingested_at,
-            embedding = EXCLUDED.embedding
+            embedding_provider = EXCLUDED.embedding_provider,
+            embedding_model = EXCLUDED.embedding_model,
+            embedding_dimension = EXCLUDED.embedding_dimension,
+            embedding = EXCLUDED.embedding,
+            semantic_embedding = EXCLUDED.semantic_embedding
         """,
         (
             chunk["chunk_id"],
@@ -257,7 +319,11 @@ def upsert_chunk(cursor, chunk: dict, embedding: list[float]) -> None:
             chunk.get("document_content_hash"),
             chunk.get("chunking_config_hash"),
             chunk.get("ingested_at"),
-            vector_literal(embedding),
+            spec.provider,
+            spec.model,
+            spec.dimension,
+            legacy_vector,
+            semantic_vector,
         ),
     )
 
@@ -266,19 +332,42 @@ def store_chunks(
     chunks: Iterable[dict],
     settings: Settings,
     schema_path: Path | None = None,
+    provider: EmbeddingProvider | None = None,
+    reindex: bool = False,
 ) -> int:
     import psycopg
 
     chunk_records = list(chunks)
+    active_provider = provider or create_embedding_provider(settings)
+    active_spec = active_provider.spec
+    vector_column_for_spec(active_spec)
+
     with psycopg.connect(settings.database_url) as connection:
         if schema_path is not None:
             ensure_schema(connection, schema_path)
 
         with connection.cursor() as cursor:
-            for chunk in chunk_records:
-                embedding = generate_embedding(chunk["chunk_text"], settings)
+            if reindex:
+                clear_stored_embeddings(cursor)
+            else:
+                profiles = fetch_embedding_profiles(cursor)
+                validate_stored_embedding_profiles(profiles, active_spec)
+
+            embeddings = active_provider.embed_many(
+                [str(chunk["chunk_text"]) for chunk in chunk_records]
+            )
+            if len(embeddings) != len(chunk_records):
+                raise RuntimeError(
+                    f"Embedding provider returned {len(embeddings)} vectors for "
+                    f"{len(chunk_records)} chunks"
+                )
+
+            for chunk, embedding in zip(chunk_records, embeddings, strict=True):
                 upsert_document(cursor, chunk)
-                upsert_chunk(cursor, chunk, embedding)
+                upsert_chunk(cursor, chunk, embedding, active_spec)
+
+            if reindex:
+                rebuild_retrieval_indexes(cursor)
 
     return len(chunk_records)
 
@@ -288,6 +377,8 @@ def embed_chunks(
     input_path: str | Path = DEFAULT_INPUT_PATH,
     schema_path: str | Path = DEFAULT_SCHEMA_PATH,
     settings: Settings | None = None,
+    provider: EmbeddingProvider | None = None,
+    reindex: bool = False,
 ) -> tuple[int, int, str]:
     root = Path(repo_root) if repo_root is not None else project_root()
     input_file = resolve_path(input_path, root)
@@ -295,14 +386,38 @@ def embed_chunks(
     active_settings = settings or Settings.from_env()
 
     chunks = load_chunks(input_file)
-    stored_count = store_chunks(chunks, active_settings, schema_file)
+    stored_count = store_chunks(
+        chunks,
+        active_settings,
+        schema_file,
+        provider=provider,
+        reindex=reindex,
+    )
     return len(chunks), stored_count, active_settings.safe_database_target
 
 
 def main() -> None:
-    chunks_read, chunks_stored, database_target = embed_chunks()
+    parser = argparse.ArgumentParser(
+        description="Embed local chunks and store one compatible embedding profile."
+    )
+    parser.add_argument(
+        "--reindex",
+        action="store_true",
+        help="Clear every stored vector/profile before fully re-embedding current chunks.",
+    )
+    args = parser.parse_args()
+    settings = Settings.from_env()
+    provider = create_embedding_provider(settings)
+    chunks_read, chunks_stored, database_target = embed_chunks(
+        settings=settings,
+        provider=provider,
+        reindex=args.reindex,
+    )
     print(f"Chunks read: {chunks_read}")
     print(f"Chunks inserted/upserted: {chunks_stored}")
+    print(f"Embedding provider: {provider.spec.provider}")
+    print(f"Embedding model: {provider.spec.model}")
+    print(f"Embedding dimension: {provider.spec.dimension}")
     print(f"Database target: {database_target}")
 
 
