@@ -13,7 +13,7 @@ The project is designed to show how an operational data platform can pair docume
 - Reciprocal Rank Fusion combines dense and lexical results, with an optional bounded local reranker.
 - A version-controlled source manifest validates provenance and normalized content hashes.
 - Markdown chunks preserve section titles, heading paths, stable IDs, and source metadata.
-- Local evaluation passes 18/18 RAG and analytics checks.
+- Issue 10 provides a versioned 24-question RAG evaluation with Recall@5, MRR, routing, citation, and safe no-answer metrics.
 - GitHub Actions runs offline-safe pytest and compileall checks.
 - No deployment, live NYC 311 data, default OpenAI calls, or production text-to-SQL claims.
 
@@ -113,13 +113,13 @@ python -m src.ingestion.load_documents
 python -m src.chunking.chunk_documents
 python -m src.embeddings.embed_chunks --reindex
 python -m src.retrieval.retrieve_context "What does complaint_type mean?"
-python -m src.evaluation.evaluate_rag
+python -m src.evaluation.evaluate_rag --profile offline
 streamlit run app/streamlit_app.py
 python -m pytest -q
 python -m compileall app src tests
 ```
 
-`docker-compose.yml` starts PostgreSQL with pgvector using safe local defaults. The local evaluation command requires the database-backed retrieval path to be prepared with ingestion, chunking, and embeddings.
+`docker-compose.yml` starts PostgreSQL with pgvector using safe local defaults. The documented offline evaluation command uses deterministic in-memory retrieval and needs no database, paid API, API key, network, or model download. The separate `--profile real` comparison requires cached local models and a prepared database.
 
 Ingestion fails on a missing source or content-hash mismatch in the default manifest. Review intentional source changes and update the manifest hash before rerunning. `sql/schema.sql` safely adds Issue 8 metadata and narrowly scoped Issue 9 retrieval columns/indexes. The first Issue 9 run, or any provider/model change, requires `python -m src.embeddings.embed_chunks --reindex`; incompatible stored profiles fail instead of mixing vector spaces. See `docs/rag-design.md` for the complete re-embedding/reindex procedure. The general migration framework remains deferred to Issue 13.
 
@@ -134,15 +134,11 @@ Ingestion fails on a missing source or content-hash mismatch in the default mani
 
 ## Evaluation Summary
 
-Local evaluation currently uses 18 questions from `data/evaluation/rag_test_questions.csv`.
+Issue 10 uses a versioned 24-question fixture at `data/evaluation/rag_test_questions.csv`, retaining 18 Phase 1 cases and adding focused Advanced RAG cases. Section-level relevance supports multiple relevant IDs. Reports keep Recall@k, MRR, expected-source retrieval, routing, citation presence/validity, safe no-answer accuracy, and unsupported answers separate.
 
-Most recent local validation:
+`python -m src.evaluation.evaluate_rag --profile offline` writes reproducible Markdown and JSON regression results under ignored `data/evaluation/results/`. Those deterministic hash-embedding scores are not a real semantic benchmark. `--profile real` separately compares the actual cached Sentence Transformers/PostgreSQL semantic, hybrid, and hybrid-plus-reranking paths when local dependencies are ready.
 
-- 18/18 evaluation questions passed locally.
-- Unit tests passed locally.
-- Evaluation covers document/RAG answers, citation coverage, analytics routing, safe no-answer behavior, and raw markdown clutter checks.
-
-This is a basic local regression check, not a production reliability benchmark.
+The reviewed portfolio baseline is `docs/evaluation-report.md`. See `docs/evaluation-notes.md` for formulas, denominators, configuration capture, commands, and limitations. This remains a small curated benchmark, not a production reliability claim or LLM-judged evaluation.
 
 ## CI
 
@@ -177,11 +173,10 @@ These screenshots are captured from a local Streamlit run.
 - Simple analytics router, not production text-to-SQL.
 - Small curated documents and sample outputs only.
 - Official source material is a curated field guide, not a live or complete copy of NYC 311 Open Data.
-- Evaluation is lightweight and does not use an LLM judge.
+- Evaluation is a small curated portfolio benchmark and does not use an LLM judge.
 
 ## Future Work
 
-- Expand evaluation coverage with retrieval metrics and reproducible reports.
 - Harden the existing opt-in OpenAI answer path with grounding and citation validation.
 - Add a versioned FastAPI application layer and reusable question orchestration.
 - Add privacy-conscious observability, feedback, and controlled database migrations.

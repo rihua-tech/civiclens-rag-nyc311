@@ -170,4 +170,12 @@ The legacy `USE_OPENAI_EMBEDDINGS` and `OPENAI_API_KEY` variables remain support
 
 Issue 9 changes retrieval only. The default answer generator remains the existing local context-only cited path, and the opt-in OpenAI answer path is unchanged. At the project level, documentation RAG and predefined analytics routing remain separate branches.
 
-Formal Recall@K/MRR reporting, new evaluation report architecture, LLM provider redesign, APIs, observability, general migrations, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex are not implemented here.
+## Evaluation Boundary
+
+Issue 10 evaluates the unchanged Issue 9 retrieval paths as separate semantic, hybrid, and hybrid-plus-reranking strategies. The versioned fixture uses section-level relevance IDs, supports multiple relevant sections, and macro-averages per-question Recall@k and reciprocal rank only across eligible questions. Expected-source retrieval remains a separate document-level check.
+
+The default evaluation command is an API-free deterministic regression and is not evidence of real semantic quality. A separate real local profile requires cached Sentence Transformers models and the prepared PostgreSQL/pgvector corpus, then calls the native Issue 9 retrieval implementation without benchmark-only ranking behavior. Both profiles report routing, citation presence/validity, safe no-answer behavior, and unsupported answers separately.
+
+Disposable Markdown/JSON runs belong under ignored `data/evaluation/results/`; only the explicitly reviewed `docs/evaluation-report.md` is the version-controlled baseline. Dataset design, formulas, commands, and limitations are documented in `docs/evaluation-notes.md`.
+
+LLM provider redesign, real LLM evaluation, APIs, observability, general migrations, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside this issue.

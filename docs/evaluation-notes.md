@@ -1,52 +1,81 @@
 # Evaluation Notes
 
-Issue 6 adds a small local evaluation harness for the CivicLens RAG development workflow. It is intended to catch obvious regressions before showing the project locally; it is not a production benchmark.
+Issue 10 provides a repeatable evaluation framework for the retrieval and deterministic application behavior implemented through Issue 9. It preserves the useful Phase 1 questions, adds explicit Advanced RAG cases, and keeps retrieval quality separate from routing, citations, and safe no-answer behavior.
 
-## What It Checks
+This is a curated portfolio benchmark. It is not production-scale, is not a large human-annotated benchmark, does not use an LLM as judge, and does not establish production readiness or statistical significance.
 
-The evaluation dataset lives at `data/evaluation/rag_test_questions.csv`. Each row includes a question, category, expected behavior, and optional source hint.
+## Dataset and Relevance Labels
 
-Issue 8 updates the existing field-definition cases to expect cited answers from `docs/knowledge/nyc311-service-request-fields.md`. This is a fixture/source correction for the new curated corpus, not a new metric or benchmark framework.
+The version-controlled fixture is `data/evaluation/rag_test_questions.csv`. Every row has a stable question ID, one dataset version, a legacy/advanced marker, question category, expected route, expected answer behavior, and explicit ground truth where applicable.
 
-`python -m src.evaluation.evaluate_rag` checks:
+All retrieval-eligible Issue 10 questions use **section-level** relevance. Relevant IDs have the form `document_id::section_title`, and pipe-separated fields support multiple relevant IDs. Questions without retrieval labels are excluded from Recall@k, MRR, and expected-source denominators; they are not automatic retrieval failures. Reports record the selected granularity and every denominator.
 
-- Answers are not empty.
-- Cited document questions return source citations when expected.
-- Expected source hints appear in returned sources.
-- Analytics questions route to predefined CSV sample outputs under `data/sample_outputs/`.
-- No-answer questions return the safe local no-answer response.
-- Main answers do not expose raw markdown clutter such as `##` headings or code fences.
+Expected-source retrieval is measured independently at document level. It checks actual retrieved `document_id` values and never infers source correctness from answer wording.
 
-## What It Does Not Check
+The fixture covers NYC 311 field definitions, architecture, runbooks, predefined analytics, safe no-answer cases, negative cases, and adversarial/misleading questions. Phase 1 cases are retained with `phase1_legacy=true`; Issue 10 additions use `false`.
 
-- It does not grade full semantic correctness.
-- It does not use an LLM judge.
-- It does not call OpenAI by default.
-- It does not require network access.
-- It does not validate live NYC 311 data or raw production datasets.
-- It does not prove deployment, cloud execution, or production readiness.
+## Retrieval Metrics
 
-## Local Evaluation Flow
+For an eligible question, Recall@k is:
 
-Document/RAG questions use PostgreSQL + pgvector retrieval, so local evaluation is an integration check. Start the local database and refresh the local processed documents before running it:
-
-```bash
-docker compose up -d
-python -m src.ingestion.load_documents
-python -m src.chunking.chunk_documents
-python -m src.embeddings.embed_chunks
-python -m src.evaluation.evaluate_rag
+```text
+|relevant section IDs intersect retrieved section IDs at k| / |relevant section IDs|
 ```
 
-Normal local retrieval can use the real Sentence Transformers semantic provider, PostgreSQL lexical search, and RRF. GitHub Actions and automated tests explicitly select the deterministic embedding provider and keep reranking disabled, so they do not download semantic/reranker weights or contact a model registry. OpenAI-backed embeddings or answers remain opt-in and are not required for this evaluation.
+Recall is calculated per question and macro-averaged. Multiple relevant IDs therefore receive proportional credit rather than an all-or-nothing score.
 
-## CI Scope
+Reciprocal rank is `1 / rank_of_first_relevant_result`. A miss is zero. MRR is the macro average across eligible questions, using the first retrieved relevant section when several are labeled.
 
-GitHub Actions runs only offline-safe checks:
+The real local comparison calls the existing Issue 9 retrieval implementation for three separate strategies:
+
+- semantic;
+- hybrid (semantic + PostgreSQL FTS with RRF);
+- hybrid + the optional bounded reranker.
+
+The evaluator records provider, model, dimension, candidate limits, RRF configuration, reranker configuration, threshold, `top_k`, and a configuration hash. It does not duplicate or tune Issue 9 retrieval algorithms.
+
+## Application Behavior Metrics
+
+The framework reports these independently rather than combining them into a vague "RAG accuracy" score:
+
+- routing accuracy for document RAG, predefined analytics, and expected safe paths;
+- citation presence when a cited answer is expected;
+- citation validity against the actual retrieved chunk/source metadata;
+- safe no-answer accuracy;
+- unsupported-answer count and rate.
+
+Arbitrary or fabricated citation numbers are invalid. Machine-readable reports retain per-question results, retrieved ranks/scores, configuration, and failed-case diagnostics.
+
+## Deterministic Offline Regression
+
+Run the offline profile with one command:
 
 ```bash
-python -m pytest -q
-python -m compileall app src tests
+python -m src.evaluation.evaluate_rag --profile offline
 ```
 
-CI does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, or raw NYC 311 datasets.
+It uses deterministic hash embeddings and in-memory cosine search over the checked-in manifest corpus. It requires no paid API, API key, PostgreSQL server, internet access, or model download. The command sets the Hugging Face and Transformers offline flags inside its process and writes both Markdown and JSON to `data/evaluation/results/`.
+
+These results validate repeatability, metric/reporting behavior, and offline application regressions. They are **not** a real semantic benchmark and must not be presented as evidence of Sentence Transformers retrieval quality.
+
+## Real Local Advanced RAG Benchmark
+
+The real profile is separate:
+
+```bash
+python -m src.evaluation.evaluate_rag --profile real
+```
+
+It requires the documented Issue 9 Sentence Transformers model and reranker to already exist in the local cache, plus a prepared PostgreSQL/pgvector database with the current corpus. The evaluator forces local-cache-only model resolution and refuses to download missing weights. It then exercises the actual semantic, PostgreSQL lexical, RRF, and optional reranking call paths.
+
+If the cache or database is unavailable, the real run reports that condition instead of substituting deterministic embeddings or inventing results.
+
+## Reports and Version Control
+
+Every run produces human-readable Markdown and machine-readable JSON under ignored `data/evaluation/results/`. Disposable runs never overwrite the approved baseline automatically.
+
+After human review, measured Issue 10 results are recorded explicitly in `docs/evaluation-report.md`. That baseline states the dataset version/date, section relevance, metric formulas, retrieval configurations, offline-versus-real distinction, actual measured results, failed cases, and limitations.
+
+## Boundaries
+
+The framework does not grade free-form semantic answer quality, use an LLM judge, call OpenAI, tune prompts, or claim general benchmark leadership. Real LLM evaluation is deferred until after Issue 11. Higher curated-benchmark scores do not automatically imply production quality.
