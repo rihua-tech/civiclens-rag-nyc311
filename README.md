@@ -2,14 +2,15 @@
 
 [![CI](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml/badge.svg)](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml)
 
-CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, PostgreSQL + pgvector retrieval, simple predefined analytics summaries, and a local Streamlit UI.
+CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, real local semantic embeddings, PostgreSQL semantic + lexical retrieval, simple predefined analytics summaries, and a local Streamlit UI.
 
 The project is designed to show how an operational data platform can pair documentation retrieval with lightweight analytics answers while keeping outputs grounded, cited, and honest about current limitations.
 
 ## Quick Proof Summary
 
 - Local Streamlit app runs with cited RAG answers and sample analytics answers.
-- PostgreSQL + pgvector stores and retrieves embedded document chunks.
+- PostgreSQL + pgvector stores semantic document vectors while PostgreSQL full-text search supplies lexical candidates.
+- Reciprocal Rank Fusion combines dense and lexical results, with an optional bounded local reranker.
 - A version-controlled source manifest validates provenance and normalized content hashes.
 - Markdown chunks preserve section titles, heading paths, stable IDs, and source metadata.
 - Local evaluation passes 18/18 RAG and analytics checks.
@@ -22,7 +23,7 @@ This project demonstrates:
 
 - Data engineering foundation: ingestion, chunking, SQL schema, Dockerized PostgreSQL, and local validation.
 - RAG system design: curated documents become searchable chunks with metadata and citations.
-- Vector retrieval: PostgreSQL + pgvector stores and retrieves embedded chunks.
+- Hybrid retrieval: PostgreSQL + pgvector semantic search and PostgreSQL full-text search are fused deterministically with RRF.
 - Hybrid analytics pattern: documentation questions use vector retrieval, while analytics questions use predefined sample outputs.
 - Evaluation and safety: tests check citations, retrieval behavior, analytics routing, and safe no-answer behavior.
 
@@ -35,10 +36,14 @@ flowchart TD
 
     docs --> ingestion["Document ingestion"]
     ingestion --> chunking["Text cleaning and chunking"]
-    chunking --> embeddings["Local embeddings by default"]
+    chunking --> embeddings["Local Sentence Transformers embeddings"]
     embeddings --> pgvector["PostgreSQL + pgvector"]
-    pgvector --> retrieval["Vector retrieval"]
-    retrieval --> answer["Context-only cited answer generation"]
+    pgvector --> semantic["Dense semantic retrieval"]
+    pgvector --> lexical["PostgreSQL full-text retrieval"]
+    semantic --> fusion["Reciprocal Rank Fusion"]
+    lexical --> fusion
+    fusion --> reranker["Optional bounded reranker"]
+    reranker --> answer["Context-only cited answer generation"]
     answer --> ui["Cited Streamlit UI"]
 
     sampleAnalytics --> analyticsRouter["Simple analytics router"]
@@ -46,7 +51,7 @@ flowchart TD
     analyticsAnswer --> ui
 ```
 
-This architecture uses vector retrieval for documentation questions and predefined sample analytics outputs for structured analytics questions.
+This architecture uses semantic + lexical hybrid retrieval for documentation questions and predefined sample analytics outputs for structured analytics questions.
 
 Evaluation, pytest, and GitHub Actions validate retrieval behavior, citation coverage, analytics routing, and safe no-answer responses.
 
@@ -68,24 +73,24 @@ The project does not ingest millions of raw NYC 311 records into the vector data
 1. Manifest-authorized source documents are hash-validated and loaded into a processed document store.
 2. Markdown is split within heading sections; plain text uses a compatible fallback.
 3. Stable document/chunk IDs, heading context, provenance, normalized content hashes, ingestion time, and `word_count` are preserved.
-4. Embeddings are generated locally by default with the existing deterministic embedding function.
-5. Chunks, metadata, and embeddings are stored in PostgreSQL + pgvector.
-6. A user question is embedded with the same local embedding path.
-7. Relevant chunks and their section/source metadata are retrieved from pgvector.
-8. A context-only answer is generated from retrieved chunks.
-9. The UI displays the answer, source citations, and an optional retrieved chunk preview.
+4. The default real local provider generates 384-dimensional embeddings with `sentence-transformers/all-MiniLM-L6-v2`; deterministic embeddings remain the CI fallback.
+5. Chunks, Issue 8 metadata, the active embedding profile, and vectors are stored in PostgreSQL + pgvector.
+6. PostgreSQL retrieves bounded semantic and lexical candidate sets while preserving current-chunk filters.
+7. Reciprocal Rank Fusion deduplicates and combines the candidates deterministically.
+8. An optional local cross-encoder reranks only the configured bounded candidate set.
+9. The existing context-only answer path uses the final cited chunks, and the UI displays their provenance.
 
-OpenAI-backed embeddings or answers are optional and disabled by default.
+Sentence Transformers models may download on their first explicit local use. OpenAI-backed embeddings or answers remain optional and disabled by default.
 
 ## Hybrid RAG Design
 
-CivicLens uses a simple hybrid pattern:
+CivicLens now uses two deliberately distinct hybrid patterns:
 
-- Documentation questions use vector retrieval over curated project documents.
+- Documentation questions use dense semantic + PostgreSQL lexical retrieval with RRF and optional bounded reranking.
 - Simple analytics questions use predefined sample CSV outputs.
 - The analytics path is a small keyword router, not a production text-to-SQL agent.
 
-In the current phase, "Hybrid RAG" means document RAG plus predefined analytics routing. Dense + lexical hybrid retrieval is planned for the next Advanced RAG stage and is not implemented yet.
+At the application level, "Hybrid RAG" means document RAG plus predefined analytics routing. Inside the document RAG branch, Issue 9 "hybrid retrieval" specifically means dense semantic retrieval combined with PostgreSQL lexical retrieval.
 
 This keeps the local demo predictable and offline-friendly while still showing how RAG and analytics can work together in an operations copilot.
 
@@ -94,7 +99,7 @@ This keeps the local demo predictable and offline-friendly while still showing h
 The local PostgreSQL schema includes:
 
 - `documents`: stable document ID, source provenance, normalized content hash, and ingestion timestamp.
-- `chunks`: stable chunk ID, section/heading context, source provenance, normalized content hash, `word_count`, and pgvector embedding.
+- `chunks`: stable chunk ID, section/heading context, source provenance, normalized content hash, `word_count`, embedding provider/model/dimension, separate compatible pgvector columns, and a generated PostgreSQL full-text vector.
 - `queries`: a table reserved for logging user questions in future local experiments.
 - `retrieval_results`: a table reserved for storing retrieved chunk metadata and scores in future evaluation work.
 
@@ -106,7 +111,8 @@ Create a local `.env` from `.env.example` if you need to override defaults. Do n
 docker compose up -d
 python -m src.ingestion.load_documents
 python -m src.chunking.chunk_documents
-python -m src.embeddings.embed_chunks
+python -m src.embeddings.embed_chunks --reindex
+python -m src.retrieval.retrieve_context "What does complaint_type mean?"
 python -m src.evaluation.evaluate_rag
 streamlit run app/streamlit_app.py
 python -m pytest -q
@@ -115,7 +121,7 @@ python -m compileall app src tests
 
 `docker-compose.yml` starts PostgreSQL with pgvector using safe local defaults. The local evaluation command requires the database-backed retrieval path to be prepared with ingestion, chunking, and embeddings.
 
-Ingestion fails on a missing source or content-hash mismatch in the default manifest. Review intentional source changes and update the manifest hash before rerunning. `sql/schema.sql` safely adds Issue 8 metadata columns to an existing local database with idempotent `ADD COLUMN IF NOT EXISTS` statements; rerun ingestion, chunking, and embedding afterward. Retrieval ignores legacy chunk rows without current content hashes. The general migration framework remains deferred to Issue 13.
+Ingestion fails on a missing source or content-hash mismatch in the default manifest. Review intentional source changes and update the manifest hash before rerunning. `sql/schema.sql` safely adds Issue 8 metadata and narrowly scoped Issue 9 retrieval columns/indexes. The first Issue 9 run, or any provider/model change, requires `python -m src.embeddings.embed_chunks --reindex`; incompatible stored profiles fail instead of mixing vector spaces. See `docs/rag-design.md` for the complete re-embedding/reindex procedure. The general migration framework remains deferred to Issue 13.
 
 ## Example Questions
 
@@ -147,7 +153,7 @@ python -m pytest -q
 python -m compileall app src tests
 ```
 
-CI does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, or raw NYC 311 datasets.
+CI explicitly uses deterministic 1536-dimensional embeddings, semantic-only configuration, and disabled reranking. It does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, model-registry access, model-weight downloads, or raw NYC 311 datasets.
 
 ## Screenshots
 
@@ -167,6 +173,7 @@ These screenshots are captured from a local Streamlit run.
 - Not deployed.
 - Not connected to live NYC 311 data.
 - No default OpenAI calls.
+- Local semantic and reranker models require memory/disk and may download weights on first use.
 - Simple analytics router, not production text-to-SQL.
 - Small curated documents and sample outputs only.
 - Official source material is a curated field guide, not a live or complete copy of NYC 311 Open Data.
@@ -174,7 +181,6 @@ These screenshots are captured from a local Streamlit run.
 
 ## Future Work
 
-- Add real local semantic embeddings, PostgreSQL lexical retrieval, hybrid fusion, and bounded reranking.
 - Expand evaluation coverage with retrieval metrics and reproducible reports.
 - Harden the existing opt-in OpenAI answer path with grounding and citation validation.
 - Add a versioned FastAPI application layer and reusable question orchestration.
@@ -190,6 +196,8 @@ These screenshots are captured from a local Streamlit run.
 - Streamlit
 - PostgreSQL
 - pgvector
+- PostgreSQL full-text search
+- Sentence Transformers
 - Docker
 - SQL
 - pytest
@@ -228,10 +236,13 @@ civiclens-rag-nyc311/
 |   |-- chunking/
 |   |-- common/
 |   |-- embeddings/
+|   |   `-- providers/
 |   |-- evaluation/
 |   |-- generation/
 |   |-- ingestion/
 |   `-- retrieval/
+|       |-- hybrid_retriever.py
+|       `-- reranker.py
 |-- tests/
 |-- docker-compose.yml
 |-- requirements.txt

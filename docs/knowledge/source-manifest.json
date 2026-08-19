@@ -24,7 +24,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/knowledge/civiclens-lakehouse-runbook.md",
       "source_version": "Issue 8 curated corpus",
       "retrieved_at": null,
-      "content_hash": "sha256:57e038bf85dfb304e3359cdd6b7ed85bae3989c61fec43d6a884ffd22538bef7"
+      "content_hash": "sha256:137c476af36f313d8e80f2abca514798c2cac450bb497fa389208d580e2b7acc"
     },
     {
       "source_name": "CivicLens README",
@@ -34,7 +34,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/README.md",
       "source_version": "Issue 8 curated corpus",
       "retrieved_at": null,
-      "content_hash": "sha256:9413b5354d7a203819c4aa22006ec955fe1861f6946a5735aa3a58b48c87e394"
+      "content_hash": "sha256:8d339fb4f0de2cdecdf4c1c0d2fa250a060bbcd4092c0237df1dd6f00c1222bd"
     },
     {
       "source_name": "CivicLens Data Sources",
@@ -54,7 +54,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/architecture.md",
       "source_version": "Issue 8 curated corpus",
       "retrieved_at": null,
-      "content_hash": "sha256:ad9b91706e7f5b2f24827493518eb9349951bdbe19d35ed53c07155ed69d7631"
+      "content_hash": "sha256:8a13ad80fd662c7a927e013776ebf102bcf2a8e809d4522e01d07db14f259640"
     },
     {
       "source_name": "CivicLens RAG Design",
@@ -64,7 +64,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/rag-design.md",
       "source_version": "Issue 8 curated corpus",
       "retrieved_at": null,
-      "content_hash": "sha256:fab4b78d81b4c050ab9abab117125501c148639e62a52bc01e03d0fa39df1bc9"
+      "content_hash": "sha256:281088d8f8d4320576066376ad57e4beda20cc683199272c87d762624c83ebac"
     },
     {
       "source_name": "CivicLens Evaluation Notes",
@@ -74,7 +74,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/evaluation-notes.md",
       "source_version": "Issue 8 curated corpus",
       "retrieved_at": null,
-      "content_hash": "sha256:ec1f0e0189d3394fa45b5be8b50a59d2a353c56585db810d5467c96aee03934f"
+      "content_hash": "sha256:6716e9ac536440d26c793aae59cde843182a6939392ccf794bce65c777012ef2"
     }
   ]
 }

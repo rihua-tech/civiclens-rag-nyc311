@@ -5,6 +5,7 @@ psycopg[binary]>=3.2,<4
 sqlalchemy
 pgvector
 openai
+sentence-transformers>=3,<6
 streamlit
 fastapi
 uvicorn

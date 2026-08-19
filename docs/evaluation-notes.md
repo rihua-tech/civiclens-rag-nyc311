@@ -38,7 +38,7 @@ python -m src.embeddings.embed_chunks
 python -m src.evaluation.evaluate_rag
 ```
 
-By default, embeddings and answers use local deterministic behavior. OpenAI-backed embeddings or answers remain opt-in through environment flags and are not required for this evaluation.
+Normal local retrieval can use the real Sentence Transformers semantic provider, PostgreSQL lexical search, and RRF. GitHub Actions and automated tests explicitly select the deterministic embedding provider and keep reranking disabled, so they do not download semantic/reranker weights or contact a model registry. OpenAI-backed embeddings or answers remain opt-in and are not required for this evaluation.
 
 ## CI Scope
 

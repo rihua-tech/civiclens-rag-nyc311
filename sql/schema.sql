@@ -34,7 +34,16 @@ CREATE TABLE IF NOT EXISTS chunks (
     document_content_hash TEXT,
     chunking_config_hash TEXT,
     ingested_at TIMESTAMPTZ,
+    embedding_provider TEXT,
+    embedding_model TEXT,
+    embedding_dimension INTEGER,
     embedding vector(1536),
+    semantic_embedding vector(384),
+    search_vector TSVECTOR GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', COALESCE(source_name, '')), 'A') ||
+        setweight(to_tsvector('simple', COALESCE(section_title, '')), 'A') ||
+        setweight(to_tsvector('english', COALESCE(chunk_text, '')), 'B')
+    ) STORED,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -61,6 +70,19 @@ ALTER TABLE chunks ADD COLUMN IF NOT EXISTS document_content_hash TEXT;
 ALTER TABLE chunks ADD COLUMN IF NOT EXISTS chunking_config_hash TEXT;
 ALTER TABLE chunks ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ;
 
+-- Issue 9 retrieval upgrade. The existing vector(1536) column remains for the
+-- deterministic and opt-in OpenAI paths. Real local semantic vectors use a
+-- separate fixed vector(384) column so incompatible profiles cannot be mixed.
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding_provider TEXT;
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding_dimension INTEGER;
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS semantic_embedding vector(384);
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS search_vector TSVECTOR GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple', COALESCE(source_name, '')), 'A') ||
+    setweight(to_tsvector('simple', COALESCE(section_title, '')), 'A') ||
+    setweight(to_tsvector('english', COALESCE(chunk_text, '')), 'B')
+) STORED;
+
 CREATE TABLE IF NOT EXISTS queries (
     query_id TEXT PRIMARY KEY,
     question TEXT NOT NULL,
@@ -78,6 +100,13 @@ CREATE TABLE IF NOT EXISTS retrieval_results (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_document_id
     ON chunks(document_id);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_search_vector_gin
+    ON chunks USING GIN(search_vector);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_semantic_embedding_hnsw
+    ON chunks USING HNSW (semantic_embedding vector_cosine_ops)
+    WHERE semantic_embedding IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_retrieval_results_query_id
     ON retrieval_results(query_id);
