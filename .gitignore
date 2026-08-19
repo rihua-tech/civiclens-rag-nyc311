@@ -8,5 +8,6 @@ __pycache__/
 .DS_Store
 data/raw/*
 data/processed/*
+data/evaluation/results/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
