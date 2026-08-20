@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import quote_plus, urlsplit, urlunsplit
 
 
@@ -16,6 +16,12 @@ DEFAULT_SEMANTIC_DIMENSION = 384
 OPENAI_PROVIDER = "openai"
 DEFAULT_OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
+LOCAL_ANSWER_PROVIDER = "local"
+OPENAI_ANSWER_PROVIDER = "openai"
+DEFAULT_ANSWER_MODEL = "gpt-4o-mini"
+DEFAULT_ANSWER_TIMEOUT_SECONDS = 30.0
+DEFAULT_ANSWER_MAX_RETRIES = 2
+MAX_ANSWER_RETRIES = 5
 
 
 def load_dotenv_if_available() -> None:
@@ -47,6 +53,32 @@ def env_int(name: str, default: int) -> int:
     return value
 
 
+def env_float(name: str, default: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than 0")
+    return value
+
+
+def env_bounded_retry_count(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if not 0 <= value <= MAX_ANSWER_RETRIES:
+        raise ValueError(f"{name} must be between 0 and {MAX_ANSWER_RETRIES}")
+    return value
+
+
 def build_database_url() -> str:
     user = os.getenv("POSTGRES_USER", "civiclens")
     password = os.getenv("POSTGRES_PASSWORD", "change_me")
@@ -70,11 +102,11 @@ def mask_database_url(database_url: str) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    database_url: str
+    database_url: str = field(repr=False)
     embedding_model: str
     use_openai_embeddings: bool
     use_openai_answers: bool
-    openai_api_key: str
+    openai_api_key: str = field(repr=False)
     embedding_provider: str = ""
     embedding_dimension: int = 0
     retrieval_mode: str = "semantic"
@@ -84,6 +116,10 @@ class Settings:
     reranking_enabled: bool = False
     reranker_model: str = DEFAULT_RERANKER_MODEL
     rerank_candidate_limit: int = 20
+    answer_provider: str = LOCAL_ANSWER_PROVIDER
+    answer_model: str = DEFAULT_ANSWER_MODEL
+    answer_timeout_seconds: float = DEFAULT_ANSWER_TIMEOUT_SECONDS
+    answer_max_retries: int = DEFAULT_ANSWER_MAX_RETRIES
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -116,11 +152,27 @@ class Settings:
             embedding_model = configured_model or DEFAULT_SEMANTIC_MODEL
             default_dimension = DEFAULT_SEMANTIC_DIMENSION
 
+        legacy_use_openai_answers = env_flag("USE_OPENAI_ANSWERS", default=False)
+        configured_answer_provider = os.getenv("ANSWER_PROVIDER", "").strip().lower()
+        if configured_answer_provider and configured_answer_provider not in {
+            LOCAL_ANSWER_PROVIDER,
+            OPENAI_ANSWER_PROVIDER,
+        }:
+            raise ValueError(
+                "ANSWER_PROVIDER must be either "
+                f"{LOCAL_ANSWER_PROVIDER!r} or {OPENAI_ANSWER_PROVIDER!r}"
+            )
+        answer_provider = (
+            OPENAI_ANSWER_PROVIDER
+            if legacy_use_openai_answers
+            else configured_answer_provider or LOCAL_ANSWER_PROVIDER
+        )
+
         return cls(
             database_url=os.getenv("DATABASE_URL") or build_database_url(),
             embedding_model=embedding_model,
             use_openai_embeddings=use_openai_embeddings,
-            use_openai_answers=env_flag("USE_OPENAI_ANSWERS", default=False),
+            use_openai_answers=answer_provider == OPENAI_ANSWER_PROVIDER,
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             embedding_provider=embedding_provider,
             embedding_dimension=(
@@ -135,6 +187,15 @@ class Settings:
             reranking_enabled=env_flag("RERANKING_ENABLED", default=False),
             reranker_model=os.getenv("RERANKER_MODEL", DEFAULT_RERANKER_MODEL).strip(),
             rerank_candidate_limit=env_int("RERANK_CANDIDATE_LIMIT", 20),
+            answer_provider=answer_provider,
+            answer_model=os.getenv("ANSWER_MODEL", DEFAULT_ANSWER_MODEL).strip()
+            or DEFAULT_ANSWER_MODEL,
+            answer_timeout_seconds=env_float(
+                "ANSWER_TIMEOUT_SECONDS", DEFAULT_ANSWER_TIMEOUT_SECONDS
+            ),
+            answer_max_retries=env_bounded_retry_count(
+                "ANSWER_MAX_RETRIES", DEFAULT_ANSWER_MAX_RETRIES
+            ),
         )
 
     @property

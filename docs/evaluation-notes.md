@@ -76,6 +76,18 @@ Every run produces human-readable Markdown and machine-readable JSON under ignor
 
 After human review, measured Issue 10 results are recorded explicitly in `docs/evaluation-report.md`. That baseline states the dataset version/date, section relevance, metric formulas, retrieval configurations, offline-versus-real distinction, actual measured results, failed cases, and limitations.
 
+## Optional Real-Provider Answer Evaluation
+
+Issue 11 adds an explicitly separate `--answer-profile openai` integration to the real local retrieval profile. It reuses the same dataset, retrieval strategies, citation checks, application metrics, and report formats while recording the answer provider/model and per-question fallback state. It refuses to run under the deterministic offline retrieval profile and does not silently label a local fallback as a successful OpenAI answer.
+
+Automated tests inject a fake answer provider. A future human-authorized live run may use:
+
+```bash
+python -m src.evaluation.evaluate_rag --profile real --answer-profile openai
+```
+
+That optional command requires separately configured OpenAI provider credentials. It was intentionally not run for Issue 11, does not replace the deterministic Issue 10 baseline, and must write to its own generated result files.
+
 ## Boundaries
 
-The framework does not grade free-form semantic answer quality, use an LLM judge, call OpenAI, tune prompts, or claim general benchmark leadership. Real LLM evaluation is deferred until after Issue 11. Higher curated-benchmark scores do not automatically imply production quality.
+The deterministic and real-local-retrieval profiles do not grade free-form semantic answer quality, use an LLM judge, call OpenAI, tune prompts, or claim general benchmark leadership. Optional real-provider evaluation remains separate and pending human authorization. Higher curated-benchmark scores do not automatically imply production quality.

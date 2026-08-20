@@ -36,6 +36,18 @@ def markdown_report(report: dict[str, Any]) -> str:
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
 
+    answer_evaluation = report.get("answer_evaluation")
+    if answer_evaluation:
+        lines[lines.index("## Strategy Comparison"):lines.index("## Strategy Comparison")] = [
+            "## Optional Answer-Provider Evaluation",
+            "",
+            f"- Profile: `{answer_evaluation['profile']}`",
+            f"- Provider: `{answer_evaluation['provider']}`",
+            f"- Model: `{answer_evaluation['model']}`",
+            "- Results are separate from the deterministic Issue 10 baseline.",
+            "",
+        ]
+
     for strategy in report["strategies"]:
         retrieval = strategy["retrieval_metrics"]
         application = strategy["application_metrics"]

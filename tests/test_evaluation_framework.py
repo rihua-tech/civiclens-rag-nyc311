@@ -9,6 +9,7 @@ from src.evaluation.evaluate_rag import (
     REAL_STRATEGIES,
     EvaluationQuestion,
     StrategyDefinition,
+    build_answer_profile_responder,
     build_report,
     citations_are_valid,
     evaluate_strategy,
@@ -17,6 +18,7 @@ from src.evaluation.evaluate_rag import (
     run_evaluation,
 )
 from src.evaluation.reporting import markdown_report, write_reports
+from src.generation.schemas import AnswerStatus, ProviderResult
 
 
 def evaluation_settings() -> Settings:
@@ -280,3 +282,58 @@ def test_reports_include_metadata_denominators_and_per_question_results(tmp_path
     assert payload["strategies"][0]["question_results"][0]["question_id"] == "q-test"
     assert DEFAULT_RESULTS_DIR.name == "results"
     assert Path("docs/evaluation-report.md") not in (markdown_path, json_path)
+
+
+def test_optional_real_provider_evaluation_reuses_framework_with_fake():
+    class FakeOpenAIProvider:
+        provider_name = "openai"
+        model_name = "fake-openai-model"
+
+        def generate(self, _question, _evidence):
+            return ProviderResult(
+                "Complaint type is the broad problem category.",
+                ("chunk-guide",),
+                AnswerStatus.ANSWERED,
+            )
+
+    def retriever(_question: str, _strategy: StrategyDefinition) -> list[dict]:
+        return [retrieved_chunk()]
+
+    settings = evaluation_settings()
+    responder = build_answer_profile_responder(
+        settings,
+        answer_profile="openai",
+        provider=FakeOpenAIProvider(),
+    )
+    strategy = evaluate_strategy(
+        [cited_question()],
+        REAL_STRATEGIES[0],
+        retriever,
+        settings,
+        top_k=5,
+        min_similarity=0.25,
+        profile="real",
+        application_responder=responder,
+        answer_profile="openai",
+    )
+    report = build_report(
+        [cited_question()],
+        [strategy],
+        profile="real",
+        evaluation_timestamp="2026-08-19T00:00:00Z",
+        top_k=5,
+        answer_profile="openai",
+        answer_model="fake-openai-model",
+    )
+
+    question_result = strategy["question_results"][0]
+    assert question_result["answer_provider"] == "openai"
+    assert question_result["answer_fallback_used"] is False
+    assert question_result["citation_valid"] is True
+    assert question_result["failures"] == []
+    assert report["answer_evaluation"] == {
+        "profile": "openai",
+        "provider": "openai",
+        "model": "fake-openai-model",
+        "separate_from_deterministic_baseline": True,
+    }

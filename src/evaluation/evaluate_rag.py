@@ -31,6 +31,8 @@ from src.common.config import (
     DETERMINISTIC_DIMENSION,
     DETERMINISTIC_MODEL,
     DETERMINISTIC_PROVIDER,
+    LOCAL_ANSWER_PROVIDER,
+    OPENAI_ANSWER_PROVIDER,
     SEMANTIC_PROVIDER,
     Settings,
 )
@@ -42,7 +44,12 @@ from src.evaluation.metrics import (
     reciprocal_rank,
 )
 from src.evaluation.reporting import write_reports
-from src.generation.answer_question import NO_ANSWER, local_answer
+from src.generation.answer_question import (
+    NO_ANSWER,
+    generate_answer_from_chunks,
+    local_answer,
+)
+from src.generation.providers import AnswerProvider, build_answer_provider
 from src.ingestion.load_documents import load_documents
 from src.retrieval.retrieve_context import DEFAULT_MIN_SIMILARITY, retrieve_context
 
@@ -108,6 +115,7 @@ class StrategyDefinition:
 
 
 Retriever = Callable[[str, StrategyDefinition], list[dict[str, Any]]]
+ApplicationResponder = Callable[[str, list[dict[str, Any]]], dict[str, Any]]
 
 
 REAL_STRATEGIES = (
@@ -339,6 +347,7 @@ def offline_settings(settings: Settings | None = None) -> Settings:
         use_openai_embeddings=False,
         use_openai_answers=False,
         openai_api_key="",
+        answer_provider=LOCAL_ANSWER_PROVIDER,
         retrieval_mode="semantic",
         reranking_enabled=False,
     )
@@ -357,6 +366,40 @@ def route_application_response(
     response["mode"] = "rag"
     response.setdefault("sample_rows", [])
     return response
+
+
+def build_answer_profile_responder(
+    settings: Settings,
+    answer_profile: str,
+    provider: AnswerProvider | None = None,
+) -> ApplicationResponder:
+    """Reuse the evaluator for an explicitly separate answer-provider profile."""
+    if answer_profile == LOCAL_ANSWER_PROVIDER:
+        return route_application_response
+    if answer_profile != OPENAI_ANSWER_PROVIDER:
+        raise ValueError(f"Unsupported answer profile: {answer_profile!r}")
+
+    selected_provider = provider
+    if selected_provider is None:
+        if settings.answer_provider != OPENAI_ANSWER_PROVIDER:
+            raise RuntimeError(
+                "Real-provider evaluation requires ANSWER_PROVIDER=openai."
+            )
+        if not settings.openai_api_key:
+            raise RuntimeError(
+                "Real-provider evaluation requires configured credentials and was not run."
+            )
+        selected_provider = build_answer_provider(settings)
+
+    def respond(question: str, retrieved_chunks: list[dict[str, Any]]) -> dict[str, Any]:
+        return generate_answer_from_chunks(
+            question,
+            retrieved_chunks,
+            settings=settings,
+            provider=selected_provider,
+        )
+
+    return respond
 
 
 def answer_hybrid_question(
@@ -546,6 +589,8 @@ def evaluate_strategy_question(
     strategy: StrategyDefinition,
     retriever: Retriever,
     top_k: int,
+    application_responder: ApplicationResponder = route_application_response,
+    answer_profile: str = LOCAL_ANSWER_PROVIDER,
 ) -> dict[str, Any]:
     analytics_response = answer_analytics_question(question.question)
     if analytics_response["mode"] == "analytics" or looks_like_analytics_question(
@@ -553,9 +598,13 @@ def evaluate_strategy_question(
     ):
         retrieved_chunks: list[dict[str, Any]] = []
         response = analytics_response
+        answer_provider_used = False
     else:
         retrieved_chunks = retriever(question.question, strategy)
-        response = route_application_response(question.question, retrieved_chunks)
+        response = application_responder(question.question, retrieved_chunks)
+        response.setdefault("mode", "rag")
+        response.setdefault("sample_rows", [])
+        answer_provider_used = True
 
     answer = str(response.get("answer", "")).strip()
     sources = list(response.get("sources", []))
@@ -627,6 +676,15 @@ def evaluate_strategy_question(
         failures.append("safe no-answer expectation failed")
     if unsupported_answer:
         failures.append("unsupported answer detected")
+    if (
+        answer_profile == OPENAI_ANSWER_PROVIDER
+        and answer_provider_used
+        and (
+            response.get("answer_provider") != OPENAI_ANSWER_PROVIDER
+            or response.get("fallback_used") is True
+        )
+    ):
+        failures.append("real answer provider was not used successfully")
 
     return {
         "question_id": question.question_id,
@@ -654,6 +712,10 @@ def evaluate_strategy_question(
         "safe_no_answer_expected": safe_no_answer_expected,
         "safe_no_answer_correct": safe_no_answer_correct,
         "unsupported_answer": unsupported_answer,
+        "answer_profile": answer_profile,
+        "answer_provider": response.get("answer_provider"),
+        "answer_status": response.get("answer_status"),
+        "answer_fallback_used": response.get("fallback_used", False),
         "answer": answer,
         "sources": sources,
         "retrieved_results": [
@@ -719,9 +781,18 @@ def evaluate_strategy(
     top_k: int,
     min_similarity: float,
     profile: str,
+    application_responder: ApplicationResponder = route_application_response,
+    answer_profile: str = LOCAL_ANSWER_PROVIDER,
 ) -> dict[str, Any]:
     question_results = [
-        evaluate_strategy_question(question, strategy, retriever, top_k)
+        evaluate_strategy_question(
+            question,
+            strategy,
+            retriever,
+            top_k,
+            application_responder=application_responder,
+            answer_profile=answer_profile,
+        )
         for question in questions
     ]
     failed_cases = [
@@ -806,6 +877,8 @@ def build_report(
     profile: str,
     evaluation_timestamp: str,
     top_k: int,
+    answer_profile: str = LOCAL_ANSWER_PROVIDER,
+    answer_model: str = "deterministic-context-extractor-v1",
 ) -> dict[str, Any]:
     dataset_version = questions[0].dataset_version if questions else "unknown"
     granularity = validate_relevance_granularity(questions)
@@ -821,7 +894,7 @@ def build_report(
             "PostgreSQL/pgvector, PostgreSQL FTS, RRF, and the cached optional "
             "cross-encoder. No LLM judge or paid API is used."
         )
-    return {
+    report = {
         "schema_version": EVALUATION_SCHEMA_VERSION,
         "evaluation_profile": profile,
         "evaluation_timestamp": evaluation_timestamp,
@@ -853,6 +926,18 @@ def build_report(
             "Higher scores do not by themselves prove production quality or readiness.",
         ],
     }
+    if answer_profile == OPENAI_ANSWER_PROVIDER:
+        report["answer_evaluation"] = {
+            "profile": OPENAI_ANSWER_PROVIDER,
+            "provider": OPENAI_ANSWER_PROVIDER,
+            "model": answer_model,
+            "separate_from_deterministic_baseline": True,
+        }
+        report["interpretation_boundary"] += (
+            " Answer generation used the explicitly selected OpenAI profile; "
+            "provider failures and local fallbacks remain visible per question."
+        )
+    return report
 
 
 def run_evaluation(
@@ -862,7 +947,18 @@ def run_evaluation(
     top_k: int,
     min_similarity: float,
     evaluation_timestamp: str,
+    answer_profile: str = LOCAL_ANSWER_PROVIDER,
+    answer_provider: AnswerProvider | None = None,
 ) -> dict[str, Any]:
+    if answer_profile == OPENAI_ANSWER_PROVIDER and profile != "real":
+        raise ValueError(
+            "OpenAI answer evaluation must remain separate and requires --profile real."
+        )
+    application_responder = build_answer_profile_responder(
+        settings,
+        answer_profile,
+        provider=answer_provider,
+    )
     if profile == "offline":
         strategies = (OFFLINE_STRATEGY,)
         retriever = build_offline_retriever(top_k, min_similarity)
@@ -882,6 +978,8 @@ def run_evaluation(
             top_k,
             min_similarity,
             profile,
+            application_responder=application_responder,
+            answer_profile=answer_profile,
         )
         for strategy in strategies
     ]
@@ -891,6 +989,12 @@ def run_evaluation(
         profile,
         evaluation_timestamp,
         top_k,
+        answer_profile=answer_profile,
+        answer_model=(
+            settings.answer_model
+            if answer_profile == OPENAI_ANSWER_PROVIDER
+            else "deterministic-context-extractor-v1"
+        ),
     )
 
 
@@ -934,6 +1038,12 @@ def main() -> int:
     parser.add_argument("--min-similarity", type=float, default=DEFAULT_MIN_SIMILARITY)
     parser.add_argument("--timestamp", default="")
     parser.add_argument("--output-stem", default="")
+    parser.add_argument(
+        "--answer-profile",
+        choices=(LOCAL_ANSWER_PROVIDER, OPENAI_ANSWER_PROVIDER),
+        default=LOCAL_ANSWER_PROVIDER,
+        help="Keep local baseline answers separate from optional OpenAI evaluation.",
+    )
     args = parser.parse_args()
 
     if args.profile == "offline":
@@ -950,8 +1060,14 @@ def main() -> int:
         top_k=args.top_k,
         min_similarity=args.min_similarity,
         evaluation_timestamp=evaluation_timestamp,
+        answer_profile=args.answer_profile,
     )
-    stem = args.output_stem or f"{args.profile}-evaluation"
+    default_stem = (
+        f"{args.profile}-evaluation"
+        if args.answer_profile == LOCAL_ANSWER_PROVIDER
+        else f"{args.profile}-{args.answer_profile}-answer-evaluation"
+    )
+    stem = args.output_stem or default_stem
     markdown_path, json_path = write_reports(report, args.output_dir, stem)
     print(print_report_summary(report))
     print(f"Markdown report: {markdown_path}")

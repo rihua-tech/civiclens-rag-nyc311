@@ -69,11 +69,14 @@ def render_sources(sources: list[dict[str, Any]]) -> None:
         st.write("No sources returned.")
         return
 
-    for index, source in enumerate(sources, start=1):
+    for fallback_number, source in enumerate(sources, start=1):
         source_name = source.get("source_name", "Unknown source")
         source_path = source.get("source_path", "Unknown path")
         chunk_id = source.get("chunk_id", "n/a")
-        st.markdown(f"{index}. `{source_name}` - `{source_path}` - chunk `{chunk_id}`")
+        citation_number = source.get("citation_number", fallback_number)
+        st.markdown(
+            f"{citation_number}. `{source_name}` - `{source_path}` - chunk `{chunk_id}`"
+        )
 
 
 def truncate_chunk_text(text: str, max_chars: int = CHUNK_PREVIEW_MAX_CHARS) -> str:

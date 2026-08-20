@@ -1,369 +1,244 @@
-"""Generate a local context-only answer with source citations."""
+"""Orchestrate retrieval, answer providers, and application citation validation."""
 
 from __future__ import annotations
 
 import argparse
-import re
+from dataclasses import replace
+from typing import Any, Sequence
 
-from src.common.config import Settings
-from src.embeddings.embed_chunks import EMBEDDING_STOPWORDS, TOKEN_PATTERN
+from src.common.config import OPENAI_ANSWER_PROVIDER, Settings
+from src.generation.citation_validation import (
+    add_validated_display_citations,
+    validate_citation_ids,
+)
+from src.generation.providers import (
+    AnswerProvider,
+    DeterministicAnswerProvider,
+    build_answer_provider,
+)
+from src.generation.providers.base import AnswerProviderError
+from src.generation.schemas import AnswerStatus, EvidenceItem, NO_ANSWER, ProviderResult
 from src.retrieval.retrieve_context import DEFAULT_MIN_SIMILARITY, retrieve_context
 
 
-NO_ANSWER = "I do not have enough source context to answer that."
 DEFAULT_CONFIDENCE_NOTE = (
-    "This answer is generated from retrieved local context only; verify source documents before making operational decisions."
+    "This answer is generated from retrieved local context only; verify source "
+    "documents before making operational decisions."
 )
-CODE_FENCE_PATTERN = re.compile(r"```[A-Za-z0-9_-]*|```")
-MARKDOWN_HEADING_PATTERN = re.compile(r"(?:^|\s)#{1,6}\s+")
-ARROW_SEPARATOR_PATTERN = re.compile(r"\s*(?:->|\u2192|\u2193)\s*")
-LIST_MARKER_PATTERN = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
-LOW_VALUE_HEADINGS = {
-    "architecture",
-    "civiclens rag hybrid rag architecture",
-    "design principle",
-    "retrieval scope",
-    "answer requirements",
-    "local embedding storage flow",
-    "local retrieval and cited answer flow",
-    "local streamlit hybrid flow",
-}
-SECTION_PREFIXES = (
-    "Design Principle ",
-    "Retrieval Scope ",
-    "Answer Requirements ",
-    "Local Embedding Storage Flow ",
-    "Local Retrieval and Cited Answer Flow ",
-    "Local Streamlit Hybrid Flow ",
+OPENAI_CONFIDENCE_NOTE = (
+    "This answer was generated from retrieved context by the configured OpenAI "
+    "provider and its citations were validated by CivicLens."
 )
-ARCHITECTURE_STEPS = (
-    ("ingestion pipeline", "ingestion"),
-    ("text cleaning + chunking", "text cleaning and chunking"),
-    ("metadata tagging", "metadata tagging"),
-    ("embedding generation", "embedding generation"),
-    ("postgresql + pgvector", "PostgreSQL/pgvector storage"),
-    ("retriever", "retrieval"),
-    ("llm answer generator", "answer generation"),
-    ("cited answer ui", "a cited answer UI"),
-)
-ANSWER_STOPWORDS = EMBEDDING_STOPWORDS | {
-    "define",
-    "definition",
-    "does",
-    "mean",
-    "means",
-}
 
 
-def question_terms(question: str) -> set[str]:
+def build_evidence(retrieved_chunks: Sequence[dict[str, Any]]) -> list[EvidenceItem]:
+    evidence: list[EvidenceItem] = []
+    for chunk in retrieved_chunks:
+        item = EvidenceItem.from_chunk(chunk)
+        if item is not None:
+            evidence.append(item)
+    return evidence
+
+
+def unique_sources(retrieved_chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Backward-compatible source extraction using application-owned metadata."""
+    citation_ids = [str(chunk.get("chunk_id", "")) for chunk in retrieved_chunks]
+    return list(validate_citation_ids(citation_ids, retrieved_chunks).sources)
+
+
+def _no_evidence_response(
+    retrieved_chunks: list[dict[str, Any]],
+    requested_provider: str,
+    requested_model: str,
+) -> dict[str, Any]:
     return {
-        token
-        for token in TOKEN_PATTERN.findall(question.lower())
-        if token not in ANSWER_STOPWORDS
+        "answer": NO_ANSWER,
+        "sources": [],
+        "confidence_note": "No usable source chunks were retrieved.",
+        "retrieved_chunks": retrieved_chunks,
+        "answer_status": AnswerStatus.ABSTAINED.value,
+        "answer_provider": requested_provider,
+        "answer_model": requested_model,
+        "citation_ids": [],
+        "rejected_citation_ids": [],
+        "provider_called": False,
+        "fallback_used": False,
     }
 
 
-def retrieval_score(chunk: dict) -> float:
-    for field in (
-        "reranker_score",
-        "fusion_score",
-        "semantic_score",
-        "lexical_score",
-        "similarity_score",
-    ):
-        value = chunk.get(field)
-        if value is not None:
-            return float(value)
-    return 0.0
+def _ground_provider_result(
+    result: ProviderResult,
+    retrieved_chunks: list[dict[str, Any]],
+    provider: AnswerProvider,
+) -> dict[str, Any]:
+    validation = validate_citation_ids(result.citation_ids, retrieved_chunks)
+    provider_name = str(provider.provider_name)
+    provider_model = str(provider.model_name)
 
-
-def normalize_heading_text(text: str) -> str:
-    return " ".join(TOKEN_PATTERN.findall(text.lower()))
-
-
-def normalize_markdown_for_answer(text: str) -> str:
-    normalized_text = CODE_FENCE_PATTERN.sub(". ", text)
-    normalized_text = MARKDOWN_HEADING_PATTERN.sub(". ", normalized_text)
-    normalized_text = ARROW_SEPARATOR_PATTERN.sub(". ", normalized_text)
-    return " ".join(normalized_text.split())
-
-
-def strip_section_prefix(text: str) -> str:
-    for prefix in SECTION_PREFIXES:
-        if text.lower().startswith(prefix.lower()):
-            return text[len(prefix) :].strip()
-    return text
-
-
-def clean_answer_candidate(text: str) -> str:
-    cleaned_text = LIST_MARKER_PATTERN.sub("", text.strip())
-    cleaned_text = cleaned_text.replace("`", "")
-    cleaned_text = cleaned_text.replace("|", " ")
-    cleaned_text = re.sub(r"\*\*?([^*]+)\*\*?", r"\1", cleaned_text)
-    cleaned_text = re.sub(r"\s+", " ", cleaned_text)
-    cleaned_text = strip_section_prefix(cleaned_text)
-    return cleaned_text.strip(" -")
-
-
-def ensure_sentence_ending(text: str) -> str:
-    cleaned_text = text.strip()
-    if not cleaned_text:
-        return cleaned_text
-    if cleaned_text[-1] in ".!?":
-        return cleaned_text
-    return f"{cleaned_text}."
-
-
-def split_markdown_units(text: str) -> list[str]:
-    compact_text = normalize_markdown_for_answer(text)
-    if not compact_text:
-        return []
-
-    units: list[str] = []
-    for unit in re.split(r"(?<=[.!?])\s+", compact_text):
-        cleaned_unit = clean_answer_candidate(unit)
-        if cleaned_unit:
-            units.append(cleaned_unit)
-    return units
-
-
-def is_low_value_answer_candidate(sentence: str) -> bool:
-    normalized_sentence = normalize_heading_text(sentence)
-    if normalized_sentence in LOW_VALUE_HEADINGS:
-        return True
-
-    lower_sentence = sentence.lower()
-    has_sentence_signal = re.search(
-        r"\b(is|are|uses|used|should|must|include|includes|contain|contains|stored|remain|moves|runs|processes)\b",
-        lower_sentence,
-    )
-    return len(sentence.split()) < 6 and not has_sentence_signal
-
-
-def split_sentences(text: str) -> list[str]:
-    return [
-        ensure_sentence_ending(sentence)
-        for sentence in split_markdown_units(text)
-        if not is_low_value_answer_candidate(sentence)
-    ]
-
-
-def is_question_like(sentence: str) -> bool:
-    stripped_sentence = sentence.strip()
-    return "?" in stripped_sentence or stripped_sentence.startswith("|")
-
-
-def unique_sources(retrieved_chunks: list[dict]) -> list[dict]:
-    sources: list[dict] = []
-    seen: set[str] = set()
-
-    for chunk in retrieved_chunks:
-        source_key = chunk["chunk_id"]
-        if source_key in seen:
-            continue
-        seen.add(source_key)
-        source = {
-            "source_name": chunk["source_name"],
-            "source_path": chunk["source_path"],
-            "chunk_id": chunk["chunk_id"],
-        }
-        for metadata_key in (
-            "source_type",
-            "source_category",
-            "source_url",
-            "source_version",
-            "source_retrieved_at",
-            "section_title",
-            "heading_path",
-            "content_hash",
-            "document_content_hash",
-            "chunking_config_hash",
-        ):
-            metadata_value = chunk.get(metadata_key)
-            if metadata_value not in (None, "", []):
-                source[metadata_key] = metadata_value
-        sources.append(source)
-
-    return sources
-
-
-def format_series(items: list[str]) -> str:
-    if not items:
-        return ""
-    if len(items) == 1:
-        return items[0]
-    if len(items) == 2:
-        return f"{items[0]} and {items[1]}"
-    return f"{', '.join(items[:-1])}, and {items[-1]}"
-
-
-def clean_source_part(source_part: str) -> str:
-    return source_part.replace("README / Runbooks", "README/runbooks").strip(" .")
-
-
-def architecture_summary_sentences(question: str, retrieved_chunks: list[dict]) -> list[tuple[str, int]]:
-    terms = question_terms(question)
-    if not {"architecture", "lakehouse"} & terms:
-        return []
-
-    for source_number, chunk in enumerate(retrieved_chunks, start=1):
-        units = split_markdown_units(chunk["chunk_text"])
-        normalized_units = [(unit, unit.lower()) for unit in units]
-
-        source_unit = next(
-            (
-                unit
-                for unit, lower_unit in normalized_units
-                if "nyc 311 documentation" in lower_unit and "nyc 311 data dictionary" in lower_unit
-            ),
-            "",
-        )
-        pipeline_steps = [
-            readable_step
-            for step_key, readable_step in ARCHITECTURE_STEPS
-            if any(step_key in lower_unit for _, lower_unit in normalized_units)
-        ]
-        design_sentence = next(
-            (
-                unit
-                for unit, lower_unit in normalized_units
-                if "structured metrics" in lower_unit or "documents and metadata" in lower_unit
-            ),
-            "",
-        )
-
-        if not source_unit or len(pipeline_steps) < 3:
-            continue
-
-        source_parts = [clean_source_part(part) for part in source_unit.split(" + ") if part.strip()]
-        selected_sentences = [
-            (
-                f"The architecture starts with {format_series(source_parts)}.",
-                source_number,
-            ),
-            (
-                f"It then moves through {format_series(pipeline_steps)}.",
-                source_number,
-            ),
-        ]
-        if design_sentence:
-            selected_sentences.append((ensure_sentence_ending(design_sentence), source_number))
-        return selected_sentences
-
-    return []
-
-
-def select_answer_sentences(question: str, retrieved_chunks: list[dict], limit: int = 3) -> list[tuple[str, int]]:
-    architecture_sentences = architecture_summary_sentences(question, retrieved_chunks)
-    if architecture_sentences:
-        return architecture_sentences[:limit]
-
-    terms = question_terms(question)
-    scored_sentences: list[tuple[int, float, int, str]] = []
-
-    for source_number, chunk in enumerate(retrieved_chunks, start=1):
-        for sentence in split_sentences(chunk["chunk_text"]):
-            if is_question_like(sentence):
-                continue
-            sentence_terms = set(TOKEN_PATTERN.findall(sentence.lower()))
-            overlap = len(terms & sentence_terms) if terms else 0
-            if overlap == 0:
-                continue
-            scored_sentences.append(
-                (
-                    overlap,
-                    retrieval_score(chunk),
-                    source_number,
-                    sentence,
-                )
-            )
-
-    scored_sentences.sort(key=lambda item: (item[0], item[1]), reverse=True)
-
-    selected: list[tuple[str, int]] = []
-    seen_sentences: set[str] = set()
-    for _, _, source_number, sentence in scored_sentences:
-        normalized_sentence = sentence.lower()
-        if normalized_sentence in seen_sentences:
-            continue
-        seen_sentences.add(normalized_sentence)
-        selected.append((sentence, source_number))
-        if len(selected) == limit:
-            break
-
-    return selected
-
-
-def format_cited_answer(selected_sentences: list[tuple[str, int]]) -> str:
-    cited_sentences = [
-        f"{ensure_sentence_ending(sentence)} [{source_number}]"
-        for sentence, source_number in selected_sentences
-    ]
-    if len(cited_sentences) >= 3:
-        return "\n".join(f"- {sentence}" for sentence in cited_sentences)
-    return " ".join(cited_sentences)
-
-
-def local_answer(question: str, retrieved_chunks: list[dict]) -> dict:
-    if not retrieved_chunks:
+    if result.status is AnswerStatus.ANSWERED and not validation.valid_ids:
         return {
             "answer": NO_ANSWER,
             "sources": [],
-            "confidence_note": "No relevant source chunks were retrieved.",
-            "retrieved_chunks": [],
-        }
-
-    selected_sentences = select_answer_sentences(question, retrieved_chunks)
-    if not selected_sentences:
-        return {
-            "answer": NO_ANSWER,
-            "sources": unique_sources(retrieved_chunks),
-            "confidence_note": "Retrieved chunks did not contain enough direct overlap with the question.",
+            "confidence_note": (
+                "The provider answer was rejected because it contained no valid "
+                "retrieved citation IDs."
+            ),
             "retrieved_chunks": retrieved_chunks,
+            "answer_status": AnswerStatus.ABSTAINED.value,
+            "answer_provider": provider_name,
+            "answer_model": provider_model,
+            "citation_ids": [],
+            "rejected_citation_ids": list(validation.invalid_ids),
+            "provider_called": True,
+            "fallback_used": False,
+            "grounding_rejection_reason": "no_valid_citations",
         }
 
-    return {
-        "answer": format_cited_answer(selected_sentences),
-        "sources": unique_sources(retrieved_chunks),
-        "confidence_note": DEFAULT_CONFIDENCE_NOTE,
-        "retrieved_chunks": retrieved_chunks,
-    }
-
-
-def openai_answer(question: str, retrieved_chunks: list[dict], settings: Settings) -> dict:
-    if not settings.openai_api_key:
-        raise RuntimeError("OPENAI_API_KEY is required when USE_OPENAI_ANSWERS=true")
-
-    from openai import OpenAI
-
-    context = "\n\n".join(
-        (
-            f"Source {index}: {chunk['source_name']} | {chunk['source_path']} | {chunk['chunk_id']}\n"
-            f"{chunk['chunk_text']}"
+    if result.status is AnswerStatus.ABSTAINED:
+        answer = NO_ANSWER
+        confidence_note = "The answer provider abstained because evidence was insufficient."
+    else:
+        answer = add_validated_display_citations(result.answer, validation.sources)
+        confidence_note = (
+            OPENAI_CONFIDENCE_NOTE
+            if provider_name == OPENAI_ANSWER_PROVIDER
+            else DEFAULT_CONFIDENCE_NOTE
         )
-        for index, chunk in enumerate(retrieved_chunks, start=1)
-    )
-    client = OpenAI(api_key=settings.openai_api_key)
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Answer only from the provided context. Include bracketed source numbers. "
-                    "If the context is insufficient, say so."
-                ),
-            },
-            {"role": "user", "content": f"Question: {question}\n\nContext:\n{context}"},
-        ],
-    )
 
     return {
-        "answer": response.choices[0].message.content or NO_ANSWER,
-        "sources": unique_sources(retrieved_chunks),
-        "confidence_note": DEFAULT_CONFIDENCE_NOTE,
+        "answer": answer,
+        "sources": list(validation.sources),
+        "confidence_note": confidence_note,
         "retrieved_chunks": retrieved_chunks,
+        "answer_status": result.status.value,
+        "answer_provider": provider_name,
+        "answer_model": provider_model,
+        "citation_ids": list(validation.valid_ids),
+        "rejected_citation_ids": list(validation.invalid_ids),
+        "provider_called": True,
+        "fallback_used": False,
     }
+
+
+def _local_fallback(
+    question: str,
+    evidence: Sequence[EvidenceItem],
+    retrieved_chunks: list[dict[str, Any]],
+    fallback_from: str,
+    fallback_reason: str,
+) -> dict[str, Any]:
+    local_provider = DeterministicAnswerProvider()
+    local_result = local_provider.generate(question, evidence)
+    response = _ground_provider_result(local_result, retrieved_chunks, local_provider)
+    response.update(
+        {
+            "fallback_used": True,
+            "fallback_from": fallback_from,
+            "fallback_reason": fallback_reason,
+        }
+    )
+    return response
+
+
+def generate_answer_from_chunks(
+    question: str,
+    retrieved_chunks: list[dict[str, Any]],
+    settings: Settings | None = None,
+    provider: AnswerProvider | None = None,
+) -> dict[str, Any]:
+    """Generate and validate an answer from already-retrieved evidence."""
+    active_settings = settings or Settings.from_env()
+    evidence = build_evidence(retrieved_chunks)
+    requested_provider = (
+        str(provider.provider_name) if provider is not None else active_settings.answer_provider
+    )
+    requested_model = (
+        str(provider.model_name) if provider is not None else active_settings.answer_model
+    )
+    if not evidence:
+        return _no_evidence_response(
+            retrieved_chunks,
+            requested_provider,
+            requested_model,
+        )
+
+    selected_provider = provider
+    if selected_provider is None:
+        try:
+            selected_provider = build_answer_provider(active_settings)
+        except AnswerProviderError as exc:
+            return _local_fallback(
+                question,
+                evidence,
+                retrieved_chunks,
+                active_settings.answer_provider,
+                exc.code,
+            )
+        except Exception:
+            return _local_fallback(
+                question,
+                evidence,
+                retrieved_chunks,
+                active_settings.answer_provider,
+                "provider_configuration",
+            )
+
+    try:
+        result = selected_provider.generate(question, evidence)
+        if not isinstance(result, ProviderResult):
+            raise TypeError("provider returned a non-ProviderResult value")
+        return _ground_provider_result(result, retrieved_chunks, selected_provider)
+    except AnswerProviderError as exc:
+        return _local_fallback(
+            question,
+            evidence,
+            retrieved_chunks,
+            str(selected_provider.provider_name),
+            exc.code,
+        )
+    except Exception:
+        return _local_fallback(
+            question,
+            evidence,
+            retrieved_chunks,
+            str(selected_provider.provider_name),
+            "provider_failure",
+        )
+
+
+def local_answer(question: str, retrieved_chunks: list[dict[str, Any]]) -> dict[str, Any]:
+    """Preserve the deterministic local answer API used by tests and evaluation."""
+    provider = DeterministicAnswerProvider()
+    evidence = build_evidence(retrieved_chunks)
+    if not evidence:
+        return _no_evidence_response(
+            retrieved_chunks,
+            provider.provider_name,
+            provider.model_name,
+        )
+    return _ground_provider_result(
+        provider.generate(question, evidence),
+        retrieved_chunks,
+        provider,
+    )
+
+
+def openai_answer(
+    question: str,
+    retrieved_chunks: list[dict[str, Any]],
+    settings: Settings,
+) -> dict[str, Any]:
+    """Backward-compatible opt-in entrypoint with controlled local fallback."""
+    openai_settings = replace(
+        settings,
+        answer_provider=OPENAI_ANSWER_PROVIDER,
+        use_openai_answers=True,
+    )
+    return generate_answer_from_chunks(
+        question,
+        retrieved_chunks,
+        settings=openai_settings,
+    )
 
 
 def answer_question(
@@ -371,7 +246,7 @@ def answer_question(
     top_k: int = 5,
     min_similarity: float = DEFAULT_MIN_SIMILARITY,
     settings: Settings | None = None,
-) -> dict:
+) -> dict[str, Any]:
     active_settings = settings or Settings.from_env()
     retrieved_chunks = retrieve_context(
         question,
@@ -379,20 +254,29 @@ def answer_question(
         min_similarity=min_similarity,
         settings=active_settings,
     )
+    return generate_answer_from_chunks(
+        question,
+        retrieved_chunks,
+        settings=active_settings,
+    )
 
-    if active_settings.use_openai_answers and active_settings.openai_api_key:
-        return openai_answer(question, retrieved_chunks, active_settings)
-    return local_answer(question, retrieved_chunks)
 
-
-def format_answer_response(response: dict) -> str:
-    lines = ["Answer:", response["answer"], "", "Confidence:", response["confidence_note"], ""]
+def format_answer_response(response: dict[str, Any]) -> str:
+    lines = [
+        "Answer:",
+        response["answer"],
+        "",
+        "Confidence:",
+        response["confidence_note"],
+        "",
+    ]
     lines.append("Sources:")
     if response["sources"]:
-        for index, source in enumerate(response["sources"], start=1):
+        for fallback_number, source in enumerate(response["sources"], start=1):
+            citation_number = source.get("citation_number", fallback_number)
             lines.append(
                 (
-                    f"{index}. {source['source_name']} - "
+                    f"{citation_number}. {source['source_name']} - "
                     f"{source['source_path']} - chunk {source['chunk_id']}"
                 )
             )
@@ -409,7 +293,9 @@ def safe_console_text(text: str) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Answer a question with retrieved local context.")
+    parser = argparse.ArgumentParser(
+        description="Answer a question with retrieved local context."
+    )
     parser.add_argument("question", help="Question to answer")
     parser.add_argument("--top-k", type=int, default=5, help="Number of chunks to retrieve")
     parser.add_argument(
@@ -420,7 +306,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    response = answer_question(args.question, top_k=args.top_k, min_similarity=args.min_similarity)
+    response = answer_question(
+        args.question,
+        top_k=args.top_k,
+        min_similarity=args.min_similarity,
+    )
     print(safe_console_text(format_answer_response(response)))
 
 
