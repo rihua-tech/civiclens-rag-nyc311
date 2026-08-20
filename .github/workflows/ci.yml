@@ -16,6 +16,7 @@ jobs:
       RETRIEVAL_MODE: "semantic"
       RERANKING_ENABLED: "false"
       USE_OPENAI_EMBEDDINGS: "false"
+      ANSWER_PROVIDER: "local"
       USE_OPENAI_ANSWERS: "false"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"

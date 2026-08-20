@@ -14,6 +14,7 @@ The project is designed to show how an operational data platform can pair docume
 - A version-controlled source manifest validates provenance and normalized content hashes.
 - Markdown chunks preserve section titles, heading paths, stable IDs, and source metadata.
 - Issue 10 provides a versioned 24-question RAG evaluation with Recall@5, MRR, routing, citation, and safe no-answer metrics.
+- Issue 11 keeps local answers as the default and isolates one opt-in OpenAI answer provider behind grounded structured output and application-controlled citation validation.
 - GitHub Actions runs offline-safe pytest and compileall checks.
 - No deployment, live NYC 311 data, default OpenAI calls, or production text-to-SQL claims.
 
@@ -78,7 +79,7 @@ The project does not ingest millions of raw NYC 311 records into the vector data
 6. PostgreSQL retrieves bounded semantic and lexical candidate sets while preserving current-chunk filters.
 7. Reciprocal Rank Fusion deduplicates and combines the candidates deterministically.
 8. An optional local cross-encoder reranks only the configured bounded candidate set.
-9. The existing context-only answer path uses the final cited chunks, and the UI displays their provenance.
+9. The configured answer provider receives only the question and allow-listed retrieved evidence; CivicLens validates stable chunk-ID citations before displaying provenance.
 
 Sentence Transformers models may download on their first explicit local use. OpenAI-backed embeddings or answers remain optional and disabled by default.
 
@@ -94,6 +95,16 @@ At the application level, "Hybrid RAG" means document RAG plus predefined analyt
 
 This keeps the local demo predictable and offline-friendly while still showing how RAG and analytics can work together in an operations copilot.
 
+## Answer Providers, Grounding, and Citations
+
+`ANSWER_PROVIDER=local` is the default. It preserves the deterministic context-only answer provider used by local workflows, evaluation, and CI. `ANSWER_PROVIDER=openai` selects the single optional commercial answer provider; the legacy `USE_OPENAI_ANSWERS=true` flag continues to select OpenAI even alongside the `.env.example` local default. Missing credentials or provider failures use a controlled local fallback, and an empty retrieval result never calls the remote provider.
+
+The OpenAI provider uses configurable `ANSWER_MODEL`, `ANSWER_TIMEOUT_SECONDS`, and bounded `ANSWER_MAX_RETRIES` settings. It returns an application-owned structured result containing answer text, stable `chunk_id` citations, and `answered`/`abstained` status.
+
+Retrieved text is treated as untrusted evidence. The provider is instructed not to follow instructions embedded inside retrieved documents, while application-side citation validation ensures that only retrieved chunk IDs can be accepted as citations. CivicLens accepts only citation IDs present in the retrieved result set, removes fabricated IDs, deduplicates valid IDs, and rebuilds source name/path/section/heading provenance from application-owned retrieval metadata. An allegedly answered result with zero valid citations becomes the normal safe no-answer response.
+
+Provider-specific errors are converted to non-secret failure categories. API keys, authorization headers, database configuration, and unrelated application state are neither placed in provider content nor exposed in settings/provider representations. Automated tests use fakes only; no live OpenAI call is part of Issue 11 implementation verification.
+
 ## Database Schema
 
 The local PostgreSQL schema includes:
@@ -105,7 +116,7 @@ The local PostgreSQL schema includes:
 
 ## Local Setup
 
-Create a local `.env` from `.env.example` if you need to override defaults. Do not commit `.env`.
+Create a local `.env` from `.env.example` if you need to override defaults. Do not commit `.env`. Normal local and CI operation uses `ANSWER_PROVIDER=local`; the optional OpenAI answer provider remains explicitly opt-in.
 
 ```bash
 docker compose up -d
@@ -149,7 +160,7 @@ python -m pytest -q
 python -m compileall app src tests
 ```
 
-CI explicitly uses deterministic 1536-dimensional embeddings, semantic-only configuration, and disabled reranking. It does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, model-registry access, model-weight downloads, or raw NYC 311 datasets.
+CI explicitly uses deterministic 1536-dimensional embeddings, semantic-only retrieval, disabled reranking, and the local answer provider. It does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, model-registry access, model-weight downloads, or raw NYC 311 datasets.
 
 ## Screenshots
 
@@ -169,6 +180,7 @@ These screenshots are captured from a local Streamlit run.
 - Not deployed.
 - Not connected to live NYC 311 data.
 - No default OpenAI calls.
+- The opt-in OpenAI answer integration is mock-tested but has not yet been live-tested with a real API key.
 - Local semantic and reranker models require memory/disk and may download weights on first use.
 - Simple analytics router, not production text-to-SQL.
 - Small curated documents and sample outputs only.
@@ -177,7 +189,6 @@ These screenshots are captured from a local Streamlit run.
 
 ## Future Work
 
-- Harden the existing opt-in OpenAI answer path with grounding and citation validation.
 - Add a versioned FastAPI application layer and reusable question orchestration.
 - Add privacy-conscious observability, feedback, and controlled database migrations.
 - Package the UI, API, and PostgreSQL/pgvector stack with Docker Compose.

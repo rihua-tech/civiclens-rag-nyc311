@@ -37,7 +37,28 @@ Retrieval code uses one embedding-provider contract exposing provider name, mode
 
 ## Answer Requirements
 
-The existing answer path remains context-only. Each answer should include a clear response, source citations, and a note when retrieved context is insufficient.
+Answer generation uses an application-owned provider contract:
+
+```text
+AnswerProvider.generate(question, evidence) -> ProviderResult
+ProviderResult = answer text + stable chunk citation IDs + answered/abstained status
+```
+
+`local` is the deterministic default for local workflows, evaluation, and CI. `openai` is the only optional commercial answer provider. OpenAI-specific Responses API parsing remains inside its provider module; application orchestration consumes only `ProviderResult`.
+
+The provider receives only the user question and allow-listed retrieved evidence fields: chunk text/ID, source name/path/type/category, section title, and heading path. It never receives credentials, database URLs, environment configuration, unrelated documents, or unrelated application state.
+
+Retrieved text is labeled as untrusted data and is separated from application rules. The provider is instructed not to treat retrieved text as application instructions, while application-side validation enforces the allowed citation IDs and safe abstention behavior.
+
+Citation identity uses stable `chunk_id` values rather than model-generated display numbers. After generation, CivicLens:
+
+1. deduplicates returned citation IDs in deterministic order;
+2. rejects IDs absent from the retrieved result set;
+3. rebuilds provenance from the application-owned retrieved chunks;
+4. creates display citation numbers from validated retrieved positions;
+5. converts an answered result with zero valid citations to `NO_ANSWER`.
+
+The application never trusts provider-generated source metadata or fabricates citations to rescue an answer.
 
 ## No-Answer Rule
 
@@ -168,7 +189,11 @@ The legacy `USE_OPENAI_EMBEDDINGS` and `OPENAI_API_KEY` variables remain support
 
 ## Answer and Analytics Boundaries
 
-Issue 9 changes retrieval only. The default answer generator remains the existing local context-only cited path, and the opt-in OpenAI answer path is unchanged. At the project level, documentation RAG and predefined analytics routing remain separate branches.
+Issue 11 does not change Issue 9 retrieval. Documentation questions still use its final retrieved chunks; predefined analytics remains a separate deterministic route.
+
+Answer-provider configuration uses `ANSWER_PROVIDER`, `ANSWER_MODEL`, `ANSWER_TIMEOUT_SECONDS`, and `ANSWER_MAX_RETRIES`. The existing `USE_OPENAI_ANSWERS` and `OPENAI_API_KEY` settings remain backward compatible: `USE_OPENAI_ANSWERS=true` selects OpenAI even when `.env.example` still contains its local default. Selecting OpenAI without credentials or encountering a timeout/provider failure triggers a controlled local fallback identified by a non-secret reason code. Provider abstention and an answered response without valid citations produce the safe no-answer result instead of a fallback-generated claim.
+
+Retries are bounded from zero through five and delegated to the OpenAI SDK. Authentication/configuration failures are mapped to a safe configuration failure rather than copied into application output. Settings and provider representations redact the API key.
 
 ## Evaluation Boundary
 
@@ -176,6 +201,8 @@ Issue 10 evaluates the unchanged Issue 9 retrieval paths as separate semantic, h
 
 The default evaluation command is an API-free deterministic regression and is not evidence of real semantic quality. A separate real local profile requires cached Sentence Transformers models and the prepared PostgreSQL/pgvector corpus, then calls the native Issue 9 retrieval implementation without benchmark-only ranking behavior. Both profiles report routing, citation presence/validity, safe no-answer behavior, and unsupported answers separately.
 
+An optional `--answer-profile openai` path reuses the same real-retrieval evaluation framework while labeling provider/model configuration and per-question fallback status separately from the deterministic baseline. Tests exercise that integration with a fake provider. No real OpenAI evaluation was run during Issue 11 because no API key was supplied.
+
 Disposable Markdown/JSON runs belong under ignored `data/evaluation/results/`; only the explicitly reviewed `docs/evaluation-report.md` is the version-controlled baseline. Dataset design, formulas, commands, and limitations are documented in `docs/evaluation-notes.md`.
 
-LLM provider redesign, real LLM evaluation, APIs, observability, general migrations, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside this issue.
+Live OpenAI evaluation, APIs, observability, general migrations, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside the completed automated verification.

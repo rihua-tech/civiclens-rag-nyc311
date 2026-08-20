@@ -4,7 +4,7 @@ numpy
 psycopg[binary]>=3.2,<4
 sqlalchemy
 pgvector
-openai
+openai>=2,<4
 sentence-transformers>=3,<6
 streamlit
 fastapi
