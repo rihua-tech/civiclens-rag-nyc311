@@ -162,6 +162,28 @@ Question
 
 The default semantic minimum similarity is 0.25. PostgreSQL lexical candidates can still contribute through RRF, but unrelated dense matches below that threshold are excluded before answer generation.
 
+## FastAPI and Shared Question Orchestration
+
+Streamlit and the versioned FastAPI backend call the same reusable Python question orchestrator. The orchestrator preserves the existing decision boundary: supported analytics questions use predefined checked-in CSV outputs, analytics-looking questions without a predefined route safely decline, and documentation questions reuse Issue 9 retrieval plus Issue 11 grounded generation and citation validation.
+
+FastAPI remains a thin adapter. It validates the public request, calls orchestration, and serializes a provider-neutral response. It does not own analytics routing, retrieval, provider selection, grounding, or citation validation. Public responses omit raw chunks, provider payloads, environment/database configuration, and local exception details; Streamlit retains its local-only diagnostics and retrieved-chunk preview.
+
+```text
+Question -> shared orchestrator -> analytics route -> application result
+                              \-> RAG retrieval -> grounded generation -> application result
+
+Application result -> Streamlit
+                   \-> FastAPI /api/v1/answer
+```
+
+`GET /health` is dependency-free liveness. `GET /ready` performs a bounded, read-only check for loadable configuration, reachable PostgreSQL, required RAG tables, exact current manifest document/chunk identities and hashes, and embeddings matching the configured provider/model/dimension. Neither endpoint calls OpenAI, loads models, performs retrieval/generation, or mutates the database.
+
+Start the versioned local HTTP adapter with:
+
+```bash
+uvicorn api.main:app
+```
+
 ## Local Streamlit Hybrid Flow
 
 Prepare the database with the complete reindex procedure, then run:
@@ -170,7 +192,7 @@ Prepare the database with the complete reindex procedure, then run:
 streamlit run app/streamlit_app.py
 ```
 
-The application continues to route predefined analytics questions to sample CSV summaries. Documentation questions use the configured semantic-only or hybrid retrieval mode before the unchanged answer generator.
+The Streamlit interface routes predefined analytics questions to sample CSV summaries. Documentation questions use the configured semantic-only or hybrid retrieval mode before grounded generation. Streamlit calls the shared orchestrator directly rather than calling the local HTTP API.
 
 ## Retrieval Troubleshooting
 
@@ -205,4 +227,4 @@ An optional `--answer-profile openai` path reuses the same real-retrieval evalua
 
 Disposable Markdown/JSON runs belong under ignored `data/evaluation/results/`; only the explicitly reviewed `docs/evaluation-report.md` is the version-controlled baseline. Dataset design, formulas, commands, and limitations are documented in `docs/evaluation-notes.md`.
 
-Live OpenAI evaluation, APIs, observability, general migrations, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside the completed automated verification.
+Live OpenAI evaluation, persistent observability, general migrations, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside the completed automated verification. Issue 12 adds only a local versioned HTTP adapter; it does not add production API concerns such as authentication, streaming, rate limiting, or monitoring.

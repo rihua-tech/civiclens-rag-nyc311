@@ -2,6 +2,7 @@
 
 ```mermaid
 flowchart TD
+    question["Question"]
     docs["NYC 311 documentation<br/>Data dictionary notes<br/>Runbooks"]
     manifest["Authoritative source manifest<br/>Provenance + content hashes"]
     samples["Sample analytics CSV outputs"]
@@ -19,15 +20,20 @@ flowchart TD
     dense --> rrf["Reciprocal Rank Fusion"]
     lexical --> rrf
     rrf --> reranker["Optional bounded cross-encoder reranker"]
-    reranker --> answer["Existing context-only cited answer generation"]
-    answer --> ui["Cited Streamlit UI"]
+    reranker --> answer["Grounded answer generation<br/>+ citation validation"]
 
-    samples --> router["Simple analytics router"]
+    question --> orchestrator["Shared question orchestration"]
+    orchestrator --> dense
+    orchestrator --> router["Simple analytics router"]
+    samples --> router
     router --> analyticsAnswer["Predefined analytics answer"]
-    analyticsAnswer --> ui
+    answer --> result["Provider-neutral application result"]
+    analyticsAnswer --> result
+    result --> ui["Cited Streamlit UI"]
+    result --> api["FastAPI<br/>/api/v1/answer"]
 ```
 
-This source explains the CivicLens project architecture: in the NYC 311 Lakehouse design, document ingestion feeds semantic and lexical retrieval, and retrieved evidence with provenance feeds context-only cited answers before the Streamlit UI. Retrieval and cited answers fit into the project architecture between PostgreSQL storage and the user interface.
+This source explains the CivicLens project architecture: in the NYC 311 Lakehouse design, document ingestion feeds semantic and lexical retrieval, and retrieved evidence with provenance feeds grounded cited answers. A shared question orchestrator owns the analytics-versus-RAG decision and returns one application result to either Streamlit or the versioned FastAPI adapter.
 
 At the application level, CivicLens still routes documentation questions to RAG and simple analytics questions to predefined sample outputs. Inside the documentation RAG path, Issue 9 hybrid retrieval means dense semantic retrieval plus PostgreSQL lexical retrieval, combined deterministically with Reciprocal Rank Fusion (RRF). The optional cross-encoder reranks only a configured candidate limit.
 
@@ -39,4 +45,6 @@ The normal local semantic provider is `sentence-transformers/all-MiniLM-L6-v2`, 
 
 The two vector dimensions use separate pgvector columns, and stored rows record provider, model, and dimension. Retrieval rejects unrecorded, mixed, or incompatible profiles instead of treating their vectors as interchangeable. Changing model or dimension requires a full, explicit re-embedding/reindex operation described in `docs/rag-design.md`.
 
-This is a local development architecture, not a production deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Formal retrieval benchmarks and reports remain Issue 10 work.
+FastAPI is a thin, provider-neutral HTTP boundary: it validates requests, calls the shared orchestration layer, serializes allow-listed answer/source fields, and sanitizes errors. It does not duplicate retrieval, analytics, grounding, or citation logic. `/health` is dependency-free liveness; `/ready` cheaply checks the local PostgreSQL RAG schema and compatible current embedded corpus without loading models, calling OpenAI, generating answers, or mutating data.
+
+This is a local development architecture, not a production deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Persistent logging, feedback, authentication, deployment, streaming, rate limiting, and monitoring remain later-stage work.

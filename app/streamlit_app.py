@@ -13,18 +13,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.analytics.simple_analytics import (
-    answer_analytics_question,
-    looks_like_analytics_question,
+from src.orchestration.question_router import (  # noqa: E402
+    BACKEND_NOT_READY_MESSAGE,
+    route_question as orchestrate_question,
 )
-from src.generation.answer_question import answer_question
+
+
+__all__ = ["BACKEND_NOT_READY_MESSAGE", "PAGE_TITLE", "route_question"]
 
 
 PAGE_TITLE = "CivicLens RAG \u2014 NYC 311 Operations Copilot"
-BACKEND_NOT_READY_MESSAGE = (
-    "The local PostgreSQL/pgvector backend is not ready. Start Docker with "
-    "`docker compose up -d`, then run ingestion, chunking, and embedding commands."
-)
 EXAMPLE_QUESTIONS = (
     "What is the local retrieval and cited answer flow?",
     "What is the no-answer rule?",
@@ -37,30 +35,9 @@ CHUNK_PREVIEW_MAX_CHARS = 1200
 
 
 def route_question(question: str) -> dict[str, Any]:
-    """Route simple sample analytics questions before using RAG retrieval."""
+    """Backward-compatible Streamlit wrapper around shared orchestration."""
 
-    analytics_response = answer_analytics_question(question)
-    if analytics_response["mode"] == "analytics":
-        return analytics_response
-    if looks_like_analytics_question(question):
-        return analytics_response
-
-    try:
-        rag_response = answer_question(question)
-    except Exception as exc:  # pragma: no cover - exercised through Streamlit runtime
-        return {
-            "answer": BACKEND_NOT_READY_MESSAGE,
-            "sources": [],
-            "confidence_note": "Local backend unavailable.",
-            "retrieved_chunks": [],
-            "sample_rows": [],
-            "mode": "backend_error",
-            "error_detail": f"{type(exc).__name__}: {exc}",
-        }
-
-    rag_response["mode"] = "rag"
-    rag_response.setdefault("sample_rows", [])
-    return rag_response
+    return orchestrate_question(question)
 
 
 def render_sources(sources: list[dict[str, Any]]) -> None:

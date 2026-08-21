@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml/badge.svg)](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml)
 
-CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, real local semantic embeddings, PostgreSQL semantic + lexical retrieval, simple predefined analytics summaries, and a local Streamlit UI.
+CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, real local semantic embeddings, PostgreSQL semantic + lexical retrieval, simple predefined analytics summaries, and shared Streamlit/FastAPI application interfaces.
 
 The project is designed to show how an operational data platform can pair documentation retrieval with lightweight analytics answers while keeping outputs grounded, cited, and honest about current limitations.
 
 ## Quick Proof Summary
 
-- Local Streamlit app runs with cited RAG answers and sample analytics answers.
+- Local Streamlit and versioned FastAPI interfaces share one question orchestration layer for cited RAG and sample analytics answers.
 - PostgreSQL + pgvector stores semantic document vectors while PostgreSQL full-text search supplies lexical candidates.
 - Reciprocal Rank Fusion combines dense and lexical results, with an optional bounded local reranker.
 - A version-controlled source manifest validates provenance and normalized content hashes.
@@ -32,6 +32,7 @@ This project demonstrates:
 
 ```mermaid
 flowchart TD
+    question["Question"]
     docs["NYC 311 documentation<br/>Data dictionary notes<br/>Runbooks"]
     sampleAnalytics["Sample analytics CSV outputs"]
 
@@ -44,15 +45,20 @@ flowchart TD
     semantic --> fusion["Reciprocal Rank Fusion"]
     lexical --> fusion
     fusion --> reranker["Optional bounded reranker"]
-    reranker --> answer["Context-only cited answer generation"]
-    answer --> ui["Cited Streamlit UI"]
+    reranker --> answer["Grounded answer generation<br/>+ citation validation"]
 
-    sampleAnalytics --> analyticsRouter["Simple analytics router"]
+    question --> orchestrator["Shared question orchestration"]
+    orchestrator --> semantic
+    orchestrator --> analyticsRouter["Simple analytics router"]
+    sampleAnalytics --> analyticsRouter
     analyticsRouter --> analyticsAnswer["Predefined analytics answer"]
-    analyticsAnswer --> ui
+    answer --> result["Provider-neutral application result"]
+    analyticsAnswer --> result
+    result --> ui["Cited Streamlit UI"]
+    result --> api["FastAPI<br/>/api/v1/answer"]
 ```
 
-This architecture uses semantic + lexical hybrid retrieval for documentation questions and predefined sample analytics outputs for structured analytics questions.
+This architecture uses semantic + lexical hybrid retrieval for documentation questions and predefined sample analytics outputs for structured analytics questions. Streamlit and FastAPI call the same Python orchestration layer directly; FastAPI is only a typed, sanitized HTTP adapter.
 
 Evaluation, pytest, and GitHub Actions validate retrieval behavior, citation coverage, analytics routing, and safe no-answer responses.
 
@@ -103,7 +109,7 @@ The OpenAI provider uses configurable `ANSWER_MODEL`, `ANSWER_TIMEOUT_SECONDS`, 
 
 Retrieved text is treated as untrusted evidence. The provider is instructed not to follow instructions embedded inside retrieved documents, while application-side citation validation ensures that only retrieved chunk IDs can be accepted as citations. CivicLens accepts only citation IDs present in the retrieved result set, removes fabricated IDs, deduplicates valid IDs, and rebuilds source name/path/section/heading provenance from application-owned retrieval metadata. An allegedly answered result with zero valid citations becomes the normal safe no-answer response.
 
-Provider-specific errors are converted to non-secret failure categories. API keys, authorization headers, database configuration, and unrelated application state are neither placed in provider content nor exposed in settings/provider representations. Automated tests use fakes only; no live OpenAI call is part of Issue 11 implementation verification.
+Provider-specific errors are converted to non-secret failure categories. API keys, authorization headers, database configuration, and unrelated application state are neither placed in provider content nor exposed in settings/provider representations. Automated tests and CI use mocks/fakes and make no OpenAI calls. Separate manual Issue 11 smoke verification with a real API key was completed after the code/security audit; it covered grounded answers, citation validation, abstention, and adversarial input, not a full real-LLM benchmark or production validation.
 
 ## Database Schema
 
@@ -126,13 +132,34 @@ python -m src.embeddings.embed_chunks --reindex
 python -m src.retrieval.retrieve_context "What does complaint_type mean?"
 python -m src.evaluation.evaluate_rag --profile offline
 streamlit run app/streamlit_app.py
+uvicorn api.main:app
 python -m pytest -q
-python -m compileall app src tests
+python -m compileall api app src tests
 ```
 
 `docker-compose.yml` starts PostgreSQL with pgvector using safe local defaults. The documented offline evaluation command uses deterministic in-memory retrieval and needs no database, paid API, API key, network, or model download. The separate `--profile real` comparison requires cached local models and a prepared database.
 
 Ingestion fails on a missing source or content-hash mismatch in the default manifest. Review intentional source changes and update the manifest hash before rerunning. `sql/schema.sql` safely adds Issue 8 metadata and narrowly scoped Issue 9 retrieval columns/indexes. The first Issue 9 run, or any provider/model change, requires `python -m src.embeddings.embed_chunks --reindex`; incompatible stored profiles fail instead of mixing vector spaces. See `docs/rag-design.md` for the complete re-embedding/reindex procedure. The general migration framework remains deferred to Issue 13.
+
+### Local FastAPI
+
+Start the local API with `uvicorn api.main:app`. It exposes:
+
+- `GET /health` for dependency-free process liveness;
+- `GET /ready` for a bounded, read-only check of PostgreSQL, the RAG schema, and current compatible embedded chunks;
+- `POST /api/v1/answer` for the shared analytics/RAG question flow.
+
+OpenAI remains optional. Liveness and readiness never require an OpenAI key, call a paid provider, load a model, or generate an answer. Analytics requests continue to use only the predefined checked-in sample CSV outputs.
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/ready
+curl -X POST http://localhost:8000/api/v1/answer \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What does complaint_type mean?","top_k":5}'
+```
+
+The answer request accepts a nonblank `question` of at most 2,000 characters and an optional `top_k` from 1 through 100. The typed response contains `answer`, provider-neutral `route` and `status`, validated source summaries, and an optional confidence note. It deliberately omits raw retrieved text, provider payloads, settings, credentials, database URLs, stack traces, and internal diagnostics. Backend failures use sanitized error responses. This API is local and in progress; it is not a production deployment.
 
 ## Example Questions
 
@@ -157,7 +184,7 @@ GitHub Actions runs offline-safe checks only:
 
 ```bash
 python -m pytest -q
-python -m compileall app src tests
+python -m compileall api app src tests
 ```
 
 CI explicitly uses deterministic 1536-dimensional embeddings, semantic-only retrieval, disabled reranking, and the local answer provider. It does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, model-registry access, model-weight downloads, or raw NYC 311 datasets.
@@ -178,9 +205,10 @@ These screenshots are captured from a local Streamlit run.
 
 - Local project only.
 - Not deployed.
+- Local FastAPI adapter only; no authentication, streaming, rate limiting, or production SLA.
 - Not connected to live NYC 311 data.
 - No default OpenAI calls.
-- The opt-in OpenAI answer integration is mock-tested but has not yet been live-tested with a real API key.
+- The opt-in OpenAI answer provider has been manually live-verified with grounded-answer, citation-validation, abstention, and adversarial-input smoke tests; automated tests and CI remain mock/offline-only.
 - Local semantic and reranker models require memory/disk and may download weights on first use.
 - Simple analytics router, not production text-to-SQL.
 - Small curated documents and sample outputs only.
@@ -189,7 +217,6 @@ These screenshots are captured from a local Streamlit run.
 
 ## Future Work
 
-- Add a versioned FastAPI application layer and reusable question orchestration.
 - Add privacy-conscious observability, feedback, and controlled database migrations.
 - Package the UI, API, and PostgreSQL/pgvector stack with Docker Compose.
 - Add a small cloud deployment proof.
@@ -200,6 +227,7 @@ These screenshots are captured from a local Streamlit run.
 
 - Python
 - Streamlit
+- FastAPI and Uvicorn
 - PostgreSQL
 - pgvector
 - PostgreSQL full-text search
@@ -217,6 +245,10 @@ These screenshots are captured from a local Streamlit run.
 
 ```text
 civiclens-rag-nyc311/
+|-- api/
+|   |-- main.py
+|   |-- models.py
+|   `-- routes/
 |-- app/
 |   `-- streamlit_app.py
 |-- data/
@@ -246,6 +278,7 @@ civiclens-rag-nyc311/
 |   |-- evaluation/
 |   |-- generation/
 |   |-- ingestion/
+|   |-- orchestration/
 |   `-- retrieval/
 |       |-- hybrid_retriever.py
 |       `-- reranker.py

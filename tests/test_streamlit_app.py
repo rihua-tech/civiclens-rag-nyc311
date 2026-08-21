@@ -34,10 +34,18 @@ def test_chunk_preview_text_is_truncated_for_plain_text_display():
 
 
 def test_route_question_returns_safe_backend_message(monkeypatch):
-    def raise_backend_error(question):
-        raise RuntimeError("connection refused")
+    def backend_error(question):
+        return {
+            "answer": BACKEND_NOT_READY_MESSAGE,
+            "sources": [],
+            "confidence_note": "Local backend unavailable.",
+            "retrieved_chunks": [],
+            "sample_rows": [],
+            "mode": "backend_error",
+            "error_detail": "RuntimeError: connection refused",
+        }
 
-    monkeypatch.setattr("app.streamlit_app.answer_question", raise_backend_error)
+    monkeypatch.setattr("app.streamlit_app.orchestrate_question", backend_error)
 
     response = route_question("What is the no-answer rule?")
 
@@ -45,3 +53,16 @@ def test_route_question_returns_safe_backend_message(monkeypatch):
     assert response["answer"] == BACKEND_NOT_READY_MESSAGE
     assert response["sources"] == []
     assert response["retrieved_chunks"] == []
+
+
+def test_streamlit_route_is_a_thin_shared_orchestration_wrapper(monkeypatch):
+    captured = {}
+
+    def fake_orchestrator(question):
+        captured["question"] = question
+        return {"answer": "shared", "mode": "rag"}
+
+    monkeypatch.setattr("app.streamlit_app.orchestrate_question", fake_orchestrator)
+
+    assert route_question("Shared question") == {"answer": "shared", "mode": "rag"}
+    assert captured == {"question": "Shared question"}
