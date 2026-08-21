@@ -15,6 +15,7 @@ The project is designed to show how an operational data platform can pair docume
 - Markdown chunks preserve section titles, heading paths, stable IDs, and source metadata.
 - Issue 10 provides a versioned 24-question RAG evaluation with Recall@5, MRR, routing, citation, and safe no-answer metrics.
 - Issue 11 keeps local answers as the default and isolates one opt-in OpenAI answer provider behind grounded structured output and application-controlled citation validation.
+- Issue 13 adds opt-in privacy-conscious execution metadata, stable `query_id` tracing, feedback, and ordered SQL migrations without storing raw questions or answers.
 - GitHub Actions runs offline-safe pytest and compileall checks.
 - No deployment, live NYC 311 data, default OpenAI calls, or production text-to-SQL claims.
 
@@ -117,8 +118,10 @@ The local PostgreSQL schema includes:
 
 - `documents`: stable document ID, source provenance, normalized content hash, and ingestion timestamp.
 - `chunks`: stable chunk ID, section/heading context, source provenance, normalized content hash, `word_count`, embedding provider/model/dimension, separate compatible pgvector columns, and a generated PostgreSQL full-text vector.
-- `queries`: a table reserved for logging user questions in future local experiments.
-- `retrieval_results`: a table reserved for storing retrieved chunk metadata and scores in future evaluation work.
+- `queries`: privacy-conscious execution metadata keyed by `query_id`; the legacy raw `question` column is nullable and new records leave it `NULL`.
+- `retrieval_results`: retrieved chunk IDs, ranks, available dense/lexical/fusion/reranker scores, and source provenance linked to the same `query_id`.
+- `feedback`: helpful/not-helpful feedback and an optional bounded comment linked to a known query.
+- `schema_migrations`: applied migration versions, names, checksums, and timestamps.
 
 ## Local Setup
 
@@ -126,6 +129,7 @@ Create a local `.env` from `.env.example` if you need to override defaults. Do n
 
 ```bash
 docker compose up -d
+python -m src.observability.migrations
 python -m src.ingestion.load_documents
 python -m src.chunking.chunk_documents
 python -m src.embeddings.embed_chunks --reindex
@@ -139,7 +143,9 @@ python -m compileall api app src tests
 
 `docker-compose.yml` starts PostgreSQL with pgvector using safe local defaults. The documented offline evaluation command uses deterministic in-memory retrieval and needs no database, paid API, API key, network, or model download. The separate `--profile real` comparison requires cached local models and a prepared database.
 
-Ingestion fails on a missing source or content-hash mismatch in the default manifest. Review intentional source changes and update the manifest hash before rerunning. `sql/schema.sql` safely adds Issue 8 metadata and narrowly scoped Issue 9 retrieval columns/indexes. The first Issue 9 run, or any provider/model change, requires `python -m src.embeddings.embed_chunks --reindex`; incompatible stored profiles fail instead of mixing vector spaces. See `docs/rag-design.md` for the complete re-embedding/reindex procedure. The general migration framework remains deferred to Issue 13.
+Ingestion fails on a missing source or content-hash mismatch in the default manifest. Review intentional source changes and update the manifest hash before rerunning. The first Issue 9 run, or any provider/model change, requires `python -m src.embeddings.embed_chunks --reindex`; incompatible stored profiles fail instead of mixing vector spaces. See `docs/rag-design.md` for the complete re-embedding/reindex procedure.
+
+Issue 13 database changes use ordered files under `sql/migrations/`. Run `python -m src.observability.migrations` after starting PostgreSQL. The runner records each applied version and checksum in `schema_migrations`, skips matching applied files, and rejects changed applied files. `0001` establishes the Issues 8/9 baseline; `0002` upgrades the existing `queries` and `retrieval_results` tables in place, makes `queries.question` nullable, and adds feedback. Existing local databases do not need to be deleted or recreated.
 
 ### Local FastAPI
 
@@ -148,6 +154,7 @@ Start the local API with `uvicorn api.main:app`. It exposes:
 - `GET /health` for dependency-free process liveness;
 - `GET /ready` for a bounded, read-only check of PostgreSQL, the RAG schema, and current compatible embedded chunks;
 - `POST /api/v1/answer` for the shared analytics/RAG question flow.
+- `POST /api/v1/feedback` for helpful/not-helpful feedback linked to a known observed query.
 
 OpenAI remains optional. Liveness and readiness never require an OpenAI key, call a paid provider, load a model, or generate an answer. Analytics requests continue to use only the predefined checked-in sample CSV outputs.
 
@@ -157,9 +164,22 @@ curl http://localhost:8000/ready
 curl -X POST http://localhost:8000/api/v1/answer \
   -H "Content-Type: application/json" \
   -d '{"question":"What does complaint_type mean?","top_k":5}'
+curl -X POST http://localhost:8000/api/v1/feedback \
+  -H "Content-Type: application/json" \
+  -d '{"query_id":"<query_id from the answer>","rating":"helpful","comment":"Useful source."}'
 ```
 
-The answer request accepts a nonblank `question` of at most 2,000 characters and an optional `top_k` from 1 through 100. The typed response contains `answer`, provider-neutral `route` and `status`, validated source summaries, and an optional confidence note. It deliberately omits raw retrieved text, provider payloads, settings, credentials, database URLs, stack traces, and internal diagnostics. Backend failures use sanitized error responses. This API is local and in progress; it is not a production deployment.
+The answer request accepts a nonblank `question` of at most 2,000 characters and an optional `top_k` from 1 through 100. The typed response contains `answer`, provider-neutral `route` and `status`, validated source summaries, an optional confidence note, and a `query_id` when observability is enabled. It deliberately omits raw retrieved text, provider payloads, settings, credentials, database URLs, stack traces, and internal diagnostics. Backend failures use sanitized error responses. This API is local and in progress; it is not a production deployment.
+
+### Observability, Privacy, and Feedback
+
+`OBSERVABILITY_ENABLED=false` is the safe default and is explicit in CI. When disabled, RAG and analytics behavior is unchanged, no query rows are written, and feedback is unavailable because there is no persisted query to reference. Set `OBSERVABILITY_ENABLED=true` only after applying migrations. `OBSERVABILITY_CONNECT_TIMEOUT_SECONDS` bounds logging and feedback database connections.
+
+When enabled, shared orchestration creates one UUID `query_id` and carries it through the answer result. The logger uses that same ID for the query row and all retrieved-chunk rows; the API returns it so `POST /api/v1/feedback` can reference the completed execution. Logging happens outside FastAPI handlers and a logging/database failure is recorded only as an internal nonfatal status—it does not replace an otherwise successful RAG or analytics answer. If persistence fails, the public result omits `query_id` because no stored query exists for feedback. Genuine retrieval and generation failures retain their existing behavior.
+
+Stored query metadata is limited to timestamp, route, configured retrieval strategy, embedding and answer provider/model names when applicable, answer status, reranking flag, `top_k`, question length, latency, and an observability schema version. Retrieval rows store chunk/document IDs, final and component ranks/scores that the existing pipeline actually produced, source name/type/category/path/URL/section/heading provenance, and content hashes. Feedback stores the UUID query reference, helpful/not-helpful value, optional comment of at most 1,000 characters, and timestamp.
+
+The logger does not store raw question text, generated answer text, retrieved chunk text, embeddings, API keys, authorization headers, database credentials, environment secrets, hidden reasoning, or raw provider payloads. The legacy `queries.question` column remains only to preserve older data and is `NULL` for Issue 13 records. Feedback comments are deliberately stored as supplied user feedback, so clients should not place secrets in them. This is local diagnostic metadata, not hosted monitoring, distributed tracing, a compliance system, or a retention guarantee.
 
 ## Example Questions
 
@@ -187,7 +207,7 @@ python -m pytest -q
 python -m compileall api app src tests
 ```
 
-CI explicitly uses deterministic 1536-dimensional embeddings, semantic-only retrieval, disabled reranking, and the local answer provider. It does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, model-registry access, model-weight downloads, or raw NYC 311 datasets.
+CI explicitly uses deterministic 1536-dimensional embeddings, semantic-only retrieval, disabled reranking, the local answer provider, and disabled observability. It does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, model-registry access, model-weight downloads, or raw NYC 311 datasets.
 
 ## Screenshots
 
@@ -214,10 +234,10 @@ These screenshots are captured from a local Streamlit run.
 - Small curated documents and sample outputs only.
 - Official source material is a curated field guide, not a live or complete copy of NYC 311 Open Data.
 - Evaluation is a small curated portfolio benchmark and does not use an LLM judge.
+- Observability is local and opt-in; there is no hosted dashboard, distributed tracing, alerting, retention policy, compliance guarantee, authentication, or user/session tracking.
 
 ## Future Work
 
-- Add privacy-conscious observability, feedback, and controlled database migrations.
 - Package the UI, API, and PostgreSQL/pgvector stack with Docker Compose.
 - Add a small cloud deployment proof.
 - Add safe typed analytics tools and a bounded LangGraph workflow.
@@ -249,6 +269,7 @@ civiclens-rag-nyc311/
 |   |-- main.py
 |   |-- models.py
 |   `-- routes/
+|       `-- feedback.py
 |-- app/
 |   `-- streamlit_app.py
 |-- data/
@@ -267,6 +288,7 @@ civiclens-rag-nyc311/
 |   |-- portfolio-card.md
 |   `-- rag-design.md
 |-- sql/
+|   |-- migrations/
 |   |-- sample_queries.sql
 |   `-- schema.sql
 |-- src/
@@ -278,6 +300,7 @@ civiclens-rag-nyc311/
 |   |-- evaluation/
 |   |-- generation/
 |   |-- ingestion/
+|   |-- observability/
 |   |-- orchestration/
 |   `-- retrieval/
 |       |-- hybrid_retriever.py

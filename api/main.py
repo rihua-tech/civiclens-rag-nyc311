@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from api.errors import SafeAPIError
 from api.models import ErrorBody, ErrorResponse
 from api.routes.answers import router as answers_router
+from api.routes.feedback import router as feedback_router
 from api.routes.system import router as system_router
 
 
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
 
     application.include_router(system_router)
     application.include_router(answers_router)
+    application.include_router(feedback_router)
     return application
 
 

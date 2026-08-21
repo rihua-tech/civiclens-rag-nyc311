@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 from src.retrieval.retrieve_context import DEFAULT_TOP_K, MAX_CANDIDATES
+from src.observability.feedback import (
+    MAX_FEEDBACK_COMMENT_LENGTH,
+    normalize_feedback_comment,
+)
+from src.observability.models import FeedbackRating
 
 
 MAX_QUESTION_LENGTH = 2000
@@ -39,6 +45,25 @@ class AnswerResponse(BaseModel):
     status: Literal["answered", "abstained"]
     sources: list[AnswerSource]
     confidence_note: str | None = None
+    query_id: UUID | None = None
+
+
+class FeedbackRequest(BaseModel):
+    query_id: UUID
+    rating: FeedbackRating
+    comment: str | None = Field(default=None, max_length=MAX_FEEDBACK_COMMENT_LENGTH)
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        return normalize_feedback_comment(value)
+
+
+class FeedbackResponse(BaseModel):
+    feedback_id: UUID
+    query_id: UUID
+    rating: FeedbackRating
+    status: Literal["recorded"] = "recorded"
 
 
 class HealthResponse(BaseModel):
