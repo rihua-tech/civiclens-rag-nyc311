@@ -31,6 +31,10 @@ flowchart TD
     analyticsAnswer --> result
     result --> ui["Cited Streamlit UI"]
     result --> api["FastAPI<br/>/api/v1/answer"]
+    result --> observation["Opt-in allow-listed<br/>execution metadata"]
+    observation --> postgresLogs["PostgreSQL<br/>queries + retrieval_results"]
+    api --> feedback["/api/v1/feedback"]
+    feedback --> postgresFeedback["PostgreSQL<br/>feedback"]
 ```
 
 This source explains the CivicLens project architecture: in the NYC 311 Lakehouse design, document ingestion feeds semantic and lexical retrieval, and retrieved evidence with provenance feeds grounded cited answers. A shared question orchestrator owns the analytics-versus-RAG decision and returns one application result to either Streamlit or the versioned FastAPI adapter.
@@ -47,4 +51,10 @@ The two vector dimensions use separate pgvector columns, and stored rows record 
 
 FastAPI is a thin, provider-neutral HTTP boundary: it validates requests, calls the shared orchestration layer, serializes allow-listed answer/source fields, and sanitizes errors. It does not duplicate retrieval, analytics, grounding, or citation logic. `/health` is dependency-free liveness; `/ready` cheaply checks the local PostgreSQL RAG schema and compatible current embedded corpus without loading models, calling OpenAI, generating answers, or mutating data.
 
-This is a local development architecture, not a production deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Persistent logging, feedback, authentication, deployment, streaming, rate limiting, and monitoring remain later-stage work.
+## Observability and Feedback Boundary
+
+Shared orchestration, not FastAPI, creates one `query_id` when `OBSERVABILITY_ENABLED=true`. The same ID is returned with the answer, stored on the existing `queries` row, attached to allow-listed `retrieval_results` rows, and required by feedback. PostgreSQL writes are parameterized and logging failures are isolated from otherwise successful answers. The feedback route delegates query validation and persistence to the observability service.
+
+Only execution metadata, existing retrieval scores/ranks, stable source references, and bounded feedback are stored. Raw question and answer text, retrieved chunk text, vectors, secrets, authorization data, environment configuration, hidden reasoning, and provider payloads are excluded. Ordered checksummed SQL files migrate existing tables without an ORM or database reset.
+
+This is a local development architecture, not a production deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, deployment, streaming, rate limiting, and monitoring remain later-stage work.

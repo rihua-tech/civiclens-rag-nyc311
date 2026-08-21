@@ -22,6 +22,7 @@ DEFAULT_ANSWER_MODEL = "gpt-4o-mini"
 DEFAULT_ANSWER_TIMEOUT_SECONDS = 30.0
 DEFAULT_ANSWER_MAX_RETRIES = 2
 MAX_ANSWER_RETRIES = 5
+DEFAULT_OBSERVABILITY_CONNECT_TIMEOUT_SECONDS = 3
 
 
 def load_dotenv_if_available() -> None:
@@ -120,6 +121,10 @@ class Settings:
     answer_model: str = DEFAULT_ANSWER_MODEL
     answer_timeout_seconds: float = DEFAULT_ANSWER_TIMEOUT_SECONDS
     answer_max_retries: int = DEFAULT_ANSWER_MAX_RETRIES
+    observability_enabled: bool = False
+    observability_connect_timeout_seconds: int = (
+        DEFAULT_OBSERVABILITY_CONNECT_TIMEOUT_SECONDS
+    )
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -195,6 +200,14 @@ class Settings:
             ),
             answer_max_retries=env_bounded_retry_count(
                 "ANSWER_MAX_RETRIES", DEFAULT_ANSWER_MAX_RETRIES
+            ),
+            observability_enabled=env_flag(
+                "OBSERVABILITY_ENABLED",
+                default=False,
+            ),
+            observability_connect_timeout_seconds=env_int(
+                "OBSERVABILITY_CONNECT_TIMEOUT_SECONDS",
+                DEFAULT_OBSERVABILITY_CONNECT_TIMEOUT_SECONDS,
             ),
         )
 

@@ -40,8 +40,13 @@ def test_unsupported_analytics_like_question_preserves_fallback(monkeypatch):
 def test_document_question_uses_grounded_answer_path_and_forwards_top_k(monkeypatch):
     captured = {}
 
-    def fake_answer(question, top_k, settings):
-        captured.update(question=question, top_k=top_k, settings=settings)
+    def fake_answer(question, top_k, settings, query_id):
+        captured.update(
+            question=question,
+            top_k=top_k,
+            settings=settings,
+            query_id=query_id,
+        )
         return {
             "answer": "Grounded answer [1]",
             "sources": [],
@@ -60,8 +65,10 @@ def test_document_question_uses_grounded_answer_path_and_forwards_top_k(monkeypa
     assert captured == {
         "question": "What is the no-answer rule?",
         "top_k": 7,
-        "settings": None,
+        "settings": captured["settings"],
+        "query_id": None,
     }
+    assert captured["settings"].observability_enabled is False
     assert result["mode"] == "rag"
     assert result["sample_rows"] == []
 

@@ -246,6 +246,7 @@ def answer_question(
     top_k: int = 5,
     min_similarity: float = DEFAULT_MIN_SIMILARITY,
     settings: Settings | None = None,
+    query_id: str | None = None,
 ) -> dict[str, Any]:
     active_settings = settings or Settings.from_env()
     retrieved_chunks = retrieve_context(
@@ -254,11 +255,14 @@ def answer_question(
         min_similarity=min_similarity,
         settings=active_settings,
     )
-    return generate_answer_from_chunks(
+    response = generate_answer_from_chunks(
         question,
         retrieved_chunks,
         settings=active_settings,
     )
+    if query_id is not None:
+        response["query_id"] = query_id
+    return response
 
 
 def format_answer_response(response: dict[str, Any]) -> str:

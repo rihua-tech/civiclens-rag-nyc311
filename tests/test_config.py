@@ -19,6 +19,8 @@ CONFIG_ENV_VARS = (
     "ANSWER_MAX_RETRIES",
     "USE_OPENAI_ANSWERS",
     "OPENAI_API_KEY",
+    "OBSERVABILITY_ENABLED",
+    "OBSERVABILITY_CONNECT_TIMEOUT_SECONDS",
 )
 
 
@@ -42,6 +44,19 @@ def test_normal_local_defaults_select_one_real_semantic_hybrid_profile(monkeypat
     assert settings.answer_model == "gpt-4o-mini"
     assert settings.answer_timeout_seconds == 30.0
     assert settings.answer_max_retries == 2
+    assert settings.observability_enabled is False
+    assert settings.observability_connect_timeout_seconds == 3
+
+
+def test_observability_configuration_is_explicit(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.setenv("OBSERVABILITY_ENABLED", "true")
+    monkeypatch.setenv("OBSERVABILITY_CONNECT_TIMEOUT_SECONDS", "7")
+
+    settings = config.Settings.from_env()
+
+    assert settings.observability_enabled is True
+    assert settings.observability_connect_timeout_seconds == 7
 
 
 def test_legacy_deterministic_environment_remains_backward_compatible(monkeypatch):

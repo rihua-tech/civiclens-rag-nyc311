@@ -113,7 +113,7 @@ Use this procedure when first moving an Issue 8 database to semantic mode or whe
    GROUP BY embedding_provider, embedding_model, embedding_dimension;
    ```
 
-The schema changes above are specific to Issue 9 retrieval. They are not a general migration framework; that remains Issue 13 work.
+The schema changes above are specific to Issue 9 retrieval. Existing databases now use the ordered Issue 13 migration command, `python -m src.observability.migrations`, before re-embedding when an unapplied schema version exists.
 
 ## PostgreSQL Semantic and Lexical Retrieval
 
@@ -166,7 +166,7 @@ The default semantic minimum similarity is 0.25. PostgreSQL lexical candidates c
 
 Streamlit and the versioned FastAPI backend call the same reusable Python question orchestrator. The orchestrator preserves the existing decision boundary: supported analytics questions use predefined checked-in CSV outputs, analytics-looking questions without a predefined route safely decline, and documentation questions reuse Issue 9 retrieval plus Issue 11 grounded generation and citation validation.
 
-FastAPI remains a thin adapter. It validates the public request, calls orchestration, and serializes a provider-neutral response. It does not own analytics routing, retrieval, provider selection, grounding, or citation validation. Public responses omit raw chunks, provider payloads, environment/database configuration, and local exception details; Streamlit retains its local-only diagnostics and retrieved-chunk preview.
+FastAPI remains a thin adapter. It validates the public request, calls orchestration, and serializes a provider-neutral response. It does not own analytics routing, retrieval, provider selection, grounding, citation validation, observability persistence, or feedback validation. Public responses omit raw chunks, provider payloads, environment/database configuration, and local exception details; Streamlit retains its local-only diagnostics and retrieved-chunk preview. When observability is enabled, the answer response adds the stable orchestration-owned `query_id` needed for feedback.
 
 ```text
 Question -> shared orchestrator -> analytics route -> application result
@@ -174,6 +174,7 @@ Question -> shared orchestrator -> analytics route -> application result
 
 Application result -> Streamlit
                    \-> FastAPI /api/v1/answer
+                   \-> allow-listed query/retrieval metadata (optional)
 ```
 
 `GET /health` is dependency-free liveness. `GET /ready` performs a bounded, read-only check for loadable configuration, reachable PostgreSQL, required RAG tables, exact current manifest document/chunk identities and hashes, and embeddings matching the configured provider/model/dimension. Neither endpoint calls OpenAI, loads models, performs retrieval/generation, or mutates the database.
@@ -209,6 +210,8 @@ The Issue 9 environment variables are:
 
 The legacy `USE_OPENAI_EMBEDDINGS` and `OPENAI_API_KEY` variables remain supported. `.env.example` shows the normal semantic/hybrid defaults. GitHub Actions explicitly selects the deterministic provider, semantic-only retrieval, and disabled reranking so tests never contact OpenAI or a model registry.
 
+Issue 13 adds `OBSERVABILITY_ENABLED` and `OBSERVABILITY_CONNECT_TIMEOUT_SECONDS`. Observability is disabled for normal CI. It records existing retrieval diagnostics and source identities, not retrieval content or vectors, and does not alter Issue 9 ranking behavior.
+
 ## Answer and Analytics Boundaries
 
 Issue 11 does not change Issue 9 retrieval. Documentation questions still use its final retrieved chunks; predefined analytics remains a separate deterministic route.
@@ -227,4 +230,4 @@ An optional `--answer-profile openai` path reuses the same real-retrieval evalua
 
 Disposable Markdown/JSON runs belong under ignored `data/evaluation/results/`; only the explicitly reviewed `docs/evaluation-report.md` is the version-controlled baseline. Dataset design, formulas, commands, and limitations are documented in `docs/evaluation-notes.md`.
 
-Live OpenAI evaluation, persistent observability, general migrations, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside the completed automated verification. Issue 12 adds only a local versioned HTTP adapter; it does not add production API concerns such as authentication, streaming, rate limiting, or monitoring.
+Live OpenAI evaluation, hosted observability, distributed tracing, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside automated verification. The local versioned HTTP adapter does not add production API concerns such as authentication, streaming, rate limiting, or monitoring.

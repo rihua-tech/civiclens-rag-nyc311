@@ -72,12 +72,14 @@ def public_answer_response(result: dict[str, Any]) -> AnswerResponse:
             if result.get("confidence_note") is not None
             else None
         ),
+        query_id=result.get("query_id"),
     )
 
 
 @router.post(
     "/answer",
     response_model=AnswerResponse,
+    response_model_exclude_none=True,
     responses={
         422: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
