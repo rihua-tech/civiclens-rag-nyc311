@@ -22,22 +22,23 @@ flowchart TD
     rrf --> reranker["Optional bounded cross-encoder reranker"]
     reranker --> answer["Grounded answer generation<br/>+ citation validation"]
 
-    question --> orchestrator["Shared question orchestration"]
+    question --> ui["Streamlit UI<br/>container or host"]
+    ui --> api["FastAPI<br/>/api/v1/answer"]
+    api --> orchestrator["Shared question orchestration"]
     orchestrator --> dense
     orchestrator --> router["Simple analytics router"]
     samples --> router
     router --> analyticsAnswer["Predefined analytics answer"]
     answer --> result["Provider-neutral application result"]
     analyticsAnswer --> result
-    result --> ui["Cited Streamlit UI"]
-    result --> api["FastAPI<br/>/api/v1/answer"]
+    result --> api
     result --> observation["Opt-in allow-listed<br/>execution metadata"]
     observation --> postgresLogs["PostgreSQL<br/>queries + retrieval_results"]
     api --> feedback["/api/v1/feedback"]
     feedback --> postgresFeedback["PostgreSQL<br/>feedback"]
 ```
 
-This source explains the CivicLens project architecture: in the NYC 311 Lakehouse design, document ingestion feeds semantic and lexical retrieval, and retrieved evidence with provenance feeds grounded cited answers. A shared question orchestrator owns the analytics-versus-RAG decision and returns one application result to either Streamlit or the versioned FastAPI adapter.
+This source explains the CivicLens project architecture: in the NYC 311 Lakehouse design, document ingestion feeds semantic and lexical retrieval, and retrieved evidence with provenance feeds grounded cited answers. Streamlit uses the versioned FastAPI contract, and the adapter delegates to a shared question orchestrator that owns the analytics-versus-RAG decision. The orchestrator stays reusable outside HTTP.
 
 At the application level, CivicLens still routes documentation questions to RAG and simple analytics questions to predefined sample outputs. Inside the documentation RAG path, Issue 9 hybrid retrieval means dense semantic retrieval plus PostgreSQL lexical retrieval, combined deterministically with Reciprocal Rank Fusion (RRF). The optional cross-encoder reranks only a configured candidate limit.
 
@@ -51,10 +52,16 @@ The two vector dimensions use separate pgvector columns, and stored rows record 
 
 FastAPI is a thin, provider-neutral HTTP boundary: it validates requests, calls the shared orchestration layer, serializes allow-listed answer/source fields, and sanitizes errors. It does not duplicate retrieval, analytics, grounding, or citation logic. `/health` is dependency-free liveness; `/ready` cheaply checks the local PostgreSQL RAG schema and compatible current embedded corpus without loading models, calling OpenAI, generating answers, or mutating data.
 
+## Local Container Boundary
+
+Docker Compose packages three local services: `ui` (Streamlit), `api` (FastAPI), and `postgres` (PostgreSQL/pgvector). Service-to-service traffic uses Compose DNS (`ui` to `api:8000`, API to `postgres:5432`), while host ports remain configurable. API container health uses `/health`, not `/ready`; therefore the UI and API can run while the corpus is still unprepared and `/ready` correctly reports `503`.
+
+The one-off `python -m scripts.bootstrap` workflow reuses the Issue 13 migration runner, manifest ingestion, section-aware chunking, and embedding/index storage in order. Normal reruns use stable IDs and upserts and never request destructive reindexing. PostgreSQL and the local model cache use named volumes. Runtime environment variables supply configuration and optional credentials; Dockerfiles contain no secrets or build-time secret arguments. This remains local development packaging rather than cloud or production infrastructure.
+
 ## Observability and Feedback Boundary
 
 Shared orchestration, not FastAPI, creates one `query_id` when `OBSERVABILITY_ENABLED=true`. The same ID is returned with the answer, stored on the existing `queries` row, attached to allow-listed `retrieval_results` rows, and required by feedback. PostgreSQL writes are parameterized and logging failures are isolated from otherwise successful answers. The feedback route delegates query validation and persistence to the observability service.
 
 Only execution metadata, existing retrieval scores/ranks, stable source references, and bounded feedback are stored. Raw question and answer text, retrieved chunk text, vectors, secrets, authorization data, environment configuration, hidden reasoning, and provider payloads are excluded. Ordered checksummed SQL files migrate existing tables without an ORM or database reset.
 
-This is a local development architecture, not a production deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, deployment, streaming, rate limiting, and monitoring remain later-stage work.
+This local development architecture includes a Docker Compose deployment/demo, not a cloud or production deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, cloud deployment, streaming, rate limiting, and monitoring remain later-stage work.
