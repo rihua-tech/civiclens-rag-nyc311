@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.streamlit_app import route_question as streamlit_route_question
 from api.main import app
 from api.routes.answers import get_question_router
 from api.routes.system import get_readiness_checker
@@ -119,21 +118,6 @@ def test_valid_analytics_request_has_same_public_contract():
     assert response.json()["route"] == "analytics"
     assert response.json()["status"] == "answered"
     assert "sample_rows" not in response.json()
-
-
-def test_streamlit_and_api_make_the_same_real_analytics_routing_decision():
-    question = "Which borough has the highest complaint volume?"
-    streamlit_result = streamlit_route_question(question)
-
-    response = TestClient(app).post(
-        "/api/v1/answer",
-        json={"question": question},
-    )
-
-    assert response.status_code == 200
-    assert streamlit_result["mode"] == "analytics"
-    assert response.json()["route"] == "analytics"
-    assert response.json()["answer"] == streamlit_result["answer"]
 
 
 def test_analytics_fallback_is_a_public_abstention():

@@ -164,16 +164,16 @@ The default semantic minimum similarity is 0.25. PostgreSQL lexical candidates c
 
 ## FastAPI and Shared Question Orchestration
 
-Streamlit and the versioned FastAPI backend call the same reusable Python question orchestrator. The orchestrator preserves the existing decision boundary: supported analytics questions use predefined checked-in CSV outputs, analytics-looking questions without a predefined route safely decline, and documentation questions reuse Issue 9 retrieval plus Issue 11 grounded generation and citation validation.
+Streamlit calls the versioned FastAPI backend through its public `POST /api/v1/answer` contract. FastAPI then calls the same reusable Python question orchestrator used by non-HTTP callers and tests. The orchestrator preserves the existing decision boundary: supported analytics questions use predefined checked-in CSV outputs, analytics-looking questions without a predefined route safely decline, and documentation questions reuse Issue 9 retrieval plus Issue 11 grounded generation and citation validation.
 
-FastAPI remains a thin adapter. It validates the public request, calls orchestration, and serializes a provider-neutral response. It does not own analytics routing, retrieval, provider selection, grounding, citation validation, observability persistence, or feedback validation. Public responses omit raw chunks, provider payloads, environment/database configuration, and local exception details; Streamlit retains its local-only diagnostics and retrieved-chunk preview. When observability is enabled, the answer response adds the stable orchestration-owned `query_id` needed for feedback.
+FastAPI remains a thin adapter. It validates the public request, calls orchestration, and serializes a provider-neutral response. It does not own analytics routing, retrieval, provider selection, grounding, citation validation, observability persistence, or feedback validation. Public responses omit raw chunks, provider payloads, environment/database configuration, and local exception details; Streamlit now renders this same allow-listed response rather than bypassing HTTP for internal retrieval diagnostics. When observability is enabled, the answer response adds the stable orchestration-owned `query_id` needed for feedback.
 
 ```text
-Question -> shared orchestrator -> analytics route -> application result
-                              \-> RAG retrieval -> grounded generation -> application result
+Question -> Streamlit -> FastAPI /api/v1/answer -> shared orchestrator
+                                                    |-> analytics route -> application result
+                                                    \-> RAG retrieval -> grounded generation -> application result
 
-Application result -> Streamlit
-                   \-> FastAPI /api/v1/answer
+Application result -> allow-listed FastAPI response -> Streamlit
                    \-> allow-listed query/retrieval metadata (optional)
 ```
 
@@ -187,13 +187,21 @@ uvicorn api.main:app
 
 ## Local Streamlit Hybrid Flow
 
-Prepare the database with the complete reindex procedure, then run:
+Prepare the database with the normal bootstrap workflow, start FastAPI, and then run Streamlit:
 
 ```bash
+python -m scripts.bootstrap
+uvicorn api.main:app
 streamlit run app/streamlit_app.py
 ```
 
-The Streamlit interface routes predefined analytics questions to sample CSV summaries. Documentation questions use the configured semantic-only or hybrid retrieval mode before grounded generation. Streamlit calls the shared orchestrator directly rather than calling the local HTTP API.
+The Streamlit interface sends every question to the public API. The shared server-side orchestrator routes predefined analytics questions to sample CSV summaries and documentation questions to configured semantic-only or hybrid retrieval before grounded generation. `CIVICLENS_API_BASE_URL` defaults to `http://localhost:8000` for this host-local workflow; Compose maps `CIVICLENS_DOCKER_API_BASE_URL` to `http://api:8000`. A bounded `CIVICLENS_API_TIMEOUT_SECONDS` controls the UI client. The UI can start before bootstrap and renders controlled not-ready, timeout, connection, validation, server, or malformed-response messages.
+
+## Docker Bootstrap and Readiness
+
+The Compose stack packages PostgreSQL/pgvector, FastAPI, and Streamlit. `docker compose run --rm api python -m scripts.bootstrap` runs ordered migrations, manifest ingestion, chunking, and embedding/index upserts by calling the existing project functions. Normal bootstrap is rerun-safe and never passes the explicit reindex flag. A stored provider/model/dimension mismatch stops with the existing clear error and requires a separate operator-approved reindex procedure.
+
+Docker uses `/health` only for API process liveness. `/ready` retains the stricter Issue 12 semantics and returns `200` only when PostgreSQL contains the exact current manifest documents and chunks with a compatible active embedding profile. It may correctly return `503` while all three containers are running before bootstrap. Named volumes preserve database state and the local Hugging Face cache across ordinary stop/start cycles.
 
 ## Retrieval Troubleshooting
 
@@ -211,6 +219,8 @@ The Issue 9 environment variables are:
 The legacy `USE_OPENAI_EMBEDDINGS` and `OPENAI_API_KEY` variables remain supported. `.env.example` shows the normal semantic/hybrid defaults. GitHub Actions explicitly selects the deterministic provider, semantic-only retrieval, and disabled reranking so tests never contact OpenAI or a model registry.
 
 Issue 13 adds `OBSERVABILITY_ENABLED` and `OBSERVABILITY_CONNECT_TIMEOUT_SECONDS`. Observability is disabled for normal CI. It records existing retrieval diagnostics and source identities, not retrieval content or vectors, and does not alter Issue 9 ranking behavior.
+
+Issue 14 adds `CIVICLENS_API_BASE_URL` and `CIVICLENS_API_TIMEOUT_SECONDS` for the Streamlit HTTP boundary. Docker service names are runtime networking details only; host-local application and test workflows remain supported.
 
 ## Answer and Analytics Boundaries
 
@@ -230,4 +240,4 @@ An optional `--answer-profile openai` path reuses the same real-retrieval evalua
 
 Disposable Markdown/JSON runs belong under ignored `data/evaluation/results/`; only the explicitly reviewed `docs/evaluation-report.md` is the version-controlled baseline. Dataset design, formulas, commands, and limitations are documented in `docs/evaluation-notes.md`.
 
-Live OpenAI evaluation, hosted observability, distributed tracing, deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside automated verification. The local versioned HTTP adapter does not add production API concerns such as authentication, streaming, rate limiting, or monitoring.
+Live OpenAI evaluation, hosted observability, distributed tracing, cloud deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside automated verification. The local Docker Compose deployment and versioned HTTP adapter do not add production API concerns such as authentication, streaming, rate limiting, or monitoring.

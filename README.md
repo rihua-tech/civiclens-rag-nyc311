@@ -2,13 +2,14 @@
 
 [![CI](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml/badge.svg)](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml)
 
-CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, real local semantic embeddings, PostgreSQL semantic + lexical retrieval, simple predefined analytics summaries, and shared Streamlit/FastAPI application interfaces.
+CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, real local semantic embeddings, PostgreSQL semantic + lexical retrieval, simple predefined analytics summaries, and containerized Streamlit/FastAPI application interfaces.
 
 The project is designed to show how an operational data platform can pair documentation retrieval with lightweight analytics answers while keeping outputs grounded, cited, and honest about current limitations.
 
 ## Quick Proof Summary
 
-- Local Streamlit and versioned FastAPI interfaces share one question orchestration layer for cited RAG and sample analytics answers.
+- Docker Compose runs Streamlit, FastAPI, and PostgreSQL/pgvector, with one rerun-safe bootstrap workflow for migrations and the current retrieval corpus.
+- Streamlit calls the versioned FastAPI contract, while FastAPI delegates to the shared question orchestration layer for cited RAG and sample analytics answers.
 - PostgreSQL + pgvector stores semantic document vectors while PostgreSQL full-text search supplies lexical candidates.
 - Reciprocal Rank Fusion combines dense and lexical results, with an optional bounded local reranker.
 - A version-controlled source manifest validates provenance and normalized content hashes.
@@ -17,7 +18,7 @@ The project is designed to show how an operational data platform can pair docume
 - Issue 11 keeps local answers as the default and isolates one opt-in OpenAI answer provider behind grounded structured output and application-controlled citation validation.
 - Issue 13 adds opt-in privacy-conscious execution metadata, stable `query_id` tracing, feedback, and ordered SQL migrations without storing raw questions or answers.
 - GitHub Actions runs offline-safe pytest and compileall checks.
-- No deployment, live NYC 311 data, default OpenAI calls, or production text-to-SQL claims.
+- Local Docker Compose deployment only; no cloud/production deployment, live NYC 311 data, default OpenAI calls, or production text-to-SQL claims.
 
 ## Why This Project Matters
 
@@ -48,18 +49,19 @@ flowchart TD
     fusion --> reranker["Optional bounded reranker"]
     reranker --> answer["Grounded answer generation<br/>+ citation validation"]
 
-    question --> orchestrator["Shared question orchestration"]
+    question --> ui["Cited Streamlit UI"]
+    ui --> api["FastAPI<br/>/api/v1/answer"]
+    api --> orchestrator["Shared question orchestration"]
     orchestrator --> semantic
     orchestrator --> analyticsRouter["Simple analytics router"]
     sampleAnalytics --> analyticsRouter
     analyticsRouter --> analyticsAnswer["Predefined analytics answer"]
     answer --> result["Provider-neutral application result"]
     analyticsAnswer --> result
-    result --> ui["Cited Streamlit UI"]
-    result --> api["FastAPI<br/>/api/v1/answer"]
+    result --> api
 ```
 
-This architecture uses semantic + lexical hybrid retrieval for documentation questions and predefined sample analytics outputs for structured analytics questions. Streamlit and FastAPI call the same Python orchestration layer directly; FastAPI is only a typed, sanitized HTTP adapter.
+This architecture uses semantic + lexical hybrid retrieval for documentation questions and predefined sample analytics outputs for structured analytics questions. Streamlit uses the public HTTP contract; FastAPI remains a typed, sanitized adapter over the same reusable Python orchestration used by tests and other local callers.
 
 Evaluation, pytest, and GitHub Actions validate retrieval behavior, citation coverage, analytics routing, and safe no-answer responses.
 
@@ -123,33 +125,72 @@ The local PostgreSQL schema includes:
 - `feedback`: helpful/not-helpful feedback and an optional bounded comment linked to a known query.
 - `schema_migrations`: applied migration versions, names, checksums, and timestamps.
 
-## Local Setup
+## Docker Compose Demo
 
-Create a local `.env` from `.env.example` if you need to override defaults. Do not commit `.env`. Normal local and CI operation uses `ANSWER_PROVIDER=local`; the optional OpenAI answer provider remains explicitly opt-in.
+Docker Engine with Docker Compose v2 is the recommended demo prerequisite. Create a local `.env` from `.env.example` only when overriding runtime defaults, choose a local PostgreSQL password, and never commit that file. Secrets are supplied at container runtime; they are not copied into images or passed as build arguments.
 
 ```bash
-docker compose up -d
-python -m src.observability.migrations
-python -m src.ingestion.load_documents
-python -m src.chunking.chunk_documents
-python -m src.embeddings.embed_chunks --reindex
-python -m src.retrieval.retrieve_context "What does complaint_type mean?"
-python -m src.evaluation.evaluate_rag --profile offline
-streamlit run app/streamlit_app.py
-uvicorn api.main:app
-python -m pytest -q
-python -m compileall api app src tests
+docker compose up -d --build
+docker compose run --rm api python -m scripts.bootstrap
 ```
 
-`docker-compose.yml` starts PostgreSQL with pgvector using safe local defaults. The documented offline evaluation command uses deterministic in-memory retrieval and needs no database, paid API, API key, network, or model download. The separate `--profile real` comparison requires cached local models and a prepared database.
+The normal stack contains `postgres`, `api`, and `ui`. Inside Compose, FastAPI reaches the database at `postgres:5432` and Streamlit reaches FastAPI at `http://api:8000`; host-facing defaults remain PostgreSQL `5432`, API `8000`, and Streamlit `8501`. Both application processes bind to `0.0.0.0` inside their containers. OpenAI is disabled and the local answer provider is the default.
 
-Ingestion fails on a missing source or content-hash mismatch in the default manifest. Review intentional source changes and update the manifest hash before rerunning. The first Issue 9 run, or any provider/model change, requires `python -m src.embeddings.embed_chunks --reindex`; incompatible stored profiles fail instead of mixing vector spaces. See `docs/rag-design.md` for the complete re-embedding/reindex procedure.
+The one-off bootstrap command applies Issue 13 migrations, validates/loads the source manifest, builds current chunks, and creates or upserts the configured embeddings and retrieval indexes. It reuses the project modules in that order and is safe to rerun: it does not reset the database, truncate tables, delete volumes, or erase observability/feedback history. Ingestion fails on a missing source or hash mismatch. An incompatible stored embedding profile fails clearly instead of silently reindexing.
 
-Issue 13 database changes use ordered files under `sql/migrations/`. Run `python -m src.observability.migrations` after starting PostgreSQL. The runner records each applied version and checksum in `schema_migrations`, skips matching applied files, and rejects changed applied files. `0001` establishes the Issues 8/9 baseline; `0002` upgrades the existing `queries` and `retrieval_results` tables in place, makes `queries.question` nullable, and adds feedback. Existing local databases do not need to be deleted or recreated.
+If an intentional provider/model/dimension change requires rebuilding retrieval storage, review the model choice first and run the explicit operation separately:
+
+```bash
+docker compose run --rm api python -m src.embeddings.embed_chunks --reindex
+```
+
+This is an operator-requested retrieval reindex, not part of normal bootstrap. See `docs/rag-design.md` for the complete profile-safety procedure. The default Sentence Transformers model may download weights on its first explicit bootstrap unless already cached; Compose retains that cache in a named model volume. No model weights are committed.
+
+### Health, Readiness, and URLs
+
+- Streamlit: `http://localhost:8501`
+- FastAPI: `http://localhost:8000`
+- `GET /health`: cheap process liveness used by Docker; it can return `200` before bootstrap.
+- `GET /ready`: real local RAG readiness; it correctly returns `503` until the current schema, corpus, chunks, embedding profile, and indexes are prepared.
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/ready
+```
+
+The UI depends only on a live API and can start before RAG bootstrap. It reports unavailable, timed-out, validation, not-ready, server, and malformed-response conditions with controlled messages rather than exposing internal payloads.
+
+### Stop, Restart, and Persistence
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+Normal `docker compose down` and later startup preserve PostgreSQL data in the named `postgres_data` volume and cached models in `model_cache`. Bootstrap can be rerun after restart.
+
+**Destructive, optional cleanup:** `docker compose down -v` deletes the Compose volumes and their local database/model-cache contents. It is not part of normal shutdown or bootstrap.
+
+## Non-Container Development
+
+Docker is not required for the Python application processes. A host-local workflow can use any supported PostgreSQL/pgvector instance; this example starts only the existing database service and then runs the same bootstrap/API/UI boundary on the host:
+
+```bash
+docker compose up -d postgres
+python -m scripts.bootstrap
+uvicorn api.main:app
+streamlit run app/streamlit_app.py
+```
+
+The host-local Streamlit default is `CIVICLENS_API_BASE_URL=http://localhost:8000`; Docker Compose maps the separate `CIVICLENS_DOCKER_API_BASE_URL` setting to `http://api:8000` so copying `.env.example` cannot accidentally make a container call its own localhost. `CIVICLENS_API_TIMEOUT_SECONDS` controls the UI request timeout and must be greater than zero and no more than 120 seconds. PostgreSQL and embedding/provider variables remain documented in `.env.example`. The same `python -m scripts.bootstrap` command uses host configuration and the same ordered migrations and corpus functions.
+
+The documented offline evaluation command uses deterministic in-memory retrieval and needs no database, paid API, API key, network, or model download. The separate `--profile real` comparison requires cached local models and a prepared database.
+
+Issue 13 database changes remain ordered files under `sql/migrations/`. Bootstrap runs their checksum-tracked migration runner on every supported fresh or upgraded database, rather than relying only on PostgreSQL's first-volume initialization directory. `0001` establishes the Issues 8/9 baseline; `0002` upgrades existing logging tables in place and adds feedback. Existing local databases do not need to be deleted or recreated.
 
 ### Local FastAPI
 
-Start the local API with `uvicorn api.main:app`. It exposes:
+Start the host-local API with `uvicorn api.main:app`. It exposes:
 
 - `GET /health` for dependency-free process liveness;
 - `GET /ready` for a bounded, read-only check of PostgreSQL, the RAG schema, and current compatible embedded chunks;
@@ -169,7 +210,7 @@ curl -X POST http://localhost:8000/api/v1/feedback \
   -d '{"query_id":"<query_id from the answer>","rating":"helpful","comment":"Useful source."}'
 ```
 
-The answer request accepts a nonblank `question` of at most 2,000 characters and an optional `top_k` from 1 through 100. The typed response contains `answer`, provider-neutral `route` and `status`, validated source summaries, an optional confidence note, and a `query_id` when observability is enabled. It deliberately omits raw retrieved text, provider payloads, settings, credentials, database URLs, stack traces, and internal diagnostics. Backend failures use sanitized error responses. This API is local and in progress; it is not a production deployment.
+The answer request accepts a nonblank `question` of at most 2,000 characters and an optional `top_k` from 1 through 100. The typed response contains `answer`, provider-neutral `route` and `status`, validated source summaries, an optional confidence note, and a `query_id` when observability is enabled. Streamlit renders that same public response. It deliberately omits raw retrieved text, provider payloads, settings, credentials, database URLs, stack traces, and internal diagnostics. Backend failures use sanitized error responses. This API is local and in progress; it is not a production deployment.
 
 ### Observability, Privacy, and Feedback
 
@@ -204,7 +245,7 @@ GitHub Actions runs offline-safe checks only:
 
 ```bash
 python -m pytest -q
-python -m compileall api app src tests
+python -m compileall api app src scripts tests
 ```
 
 CI explicitly uses deterministic 1536-dimensional embeddings, semantic-only retrieval, disabled reranking, the local answer provider, and disabled observability. It does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, model-registry access, model-weight downloads, or raw NYC 311 datasets.
@@ -223,9 +264,8 @@ These screenshots are captured from a local Streamlit run.
 
 ## Limitations
 
-- Local project only.
-- Not deployed.
-- Local FastAPI adapter only; no authentication, streaming, rate limiting, or production SLA.
+- Local Docker Compose deployment/demo only; no cloud or production deployment.
+- No orchestration platform, authentication, streaming, rate limiting, or production SLA.
 - Not connected to live NYC 311 data.
 - No default OpenAI calls.
 - The opt-in OpenAI answer provider has been manually live-verified with grounded-answer, citation-validation, abstention, and adversarial-input smoke tests; automated tests and CI remain mock/offline-only.
@@ -238,7 +278,6 @@ These screenshots are captured from a local Streamlit run.
 
 ## Future Work
 
-- Package the UI, API, and PostgreSQL/pgvector stack with Docker Compose.
 - Add a small cloud deployment proof.
 - Add safe typed analytics tools and a bounded LangGraph workflow.
 - Optionally demonstrate vector-store and RAG-framework portability.
@@ -271,6 +310,7 @@ civiclens-rag-nyc311/
 |   `-- routes/
 |       `-- feedback.py
 |-- app/
+|   |-- api_client.py
 |   `-- streamlit_app.py
 |-- data/
 |   |-- evaluation/
@@ -305,8 +345,14 @@ civiclens-rag-nyc311/
 |   `-- retrieval/
 |       |-- hybrid_retriever.py
 |       `-- reranker.py
+|-- scripts/
+|   `-- bootstrap.py
 |-- tests/
+|-- .dockerignore
+|-- Dockerfile.api
+|-- Dockerfile.ui
 |-- docker-compose.yml
+|-- requirements-ui.txt
 |-- requirements.txt
 `-- README.md
 ```

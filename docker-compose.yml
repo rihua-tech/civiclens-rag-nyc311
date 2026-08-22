@@ -1,7 +1,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: civiclens-rag-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-civiclens_rag}
       POSTGRES_USER: ${POSTGRES_USER:-civiclens}
@@ -10,12 +10,96 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-civiclens} -d ${POSTGRES_DB:-civiclens_rag}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+      POSTGRES_DB: ${POSTGRES_DB:-civiclens_rag}
+      POSTGRES_USER: ${POSTGRES_USER:-civiclens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-sentence_transformers}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-384}
+      RETRIEVAL_MODE: ${RETRIEVAL_MODE:-hybrid}
+      SEMANTIC_CANDIDATE_COUNT: ${SEMANTIC_CANDIDATE_COUNT:-20}
+      LEXICAL_CANDIDATE_COUNT: ${LEXICAL_CANDIDATE_COUNT:-20}
+      RRF_K: ${RRF_K:-60}
+      RERANKING_ENABLED: ${RERANKING_ENABLED:-false}
+      RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L6-v2}
+      RERANK_CANDIDATE_LIMIT: ${RERANK_CANDIDATE_LIMIT:-20}
+      ANSWER_PROVIDER: ${ANSWER_PROVIDER:-local}
+      ANSWER_MODEL: ${ANSWER_MODEL:-gpt-4o-mini}
+      ANSWER_TIMEOUT_SECONDS: ${ANSWER_TIMEOUT_SECONDS:-30}
+      ANSWER_MAX_RETRIES: ${ANSWER_MAX_RETRIES:-2}
+      USE_OPENAI_ANSWERS: ${USE_OPENAI_ANSWERS:-false}
+      USE_OPENAI_EMBEDDINGS: ${USE_OPENAI_EMBEDDINGS:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OBSERVABILITY_ENABLED: ${OBSERVABILITY_ENABLED:-false}
+      OBSERVABILITY_CONNECT_TIMEOUT_SECONDS: ${OBSERVABILITY_CONNECT_TIMEOUT_SECONDS:-3}
+      HF_HOME: /home/appuser/.cache/huggingface
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - model_cache:/home/appuser/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+      CIVICLENS_API_BASE_URL: ${CIVICLENS_DOCKER_API_BASE_URL:-http://api:8000}
+      CIVICLENS_API_TIMEOUT_SECONDS: ${CIVICLENS_API_TIMEOUT_SECONDS:-30}
+    ports:
+      - "${UI_PORT:-8501}:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
 volumes:
   postgres_data:
+  model_cache:
