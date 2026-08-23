@@ -8,8 +8,7 @@ services:
     dockerContext: .
     healthCheckPath: /health
     autoDeployTrigger: "off"
-    dockerCommand: >-
-      /bin/sh -c "python -m scripts.bootstrap && exec python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+    dockerCommand: /bin/sh scripts/render_start.sh
     envVars:
       - key: DATABASE_URL
         fromDatabase:

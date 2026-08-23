@@ -7,6 +7,7 @@ import yaml
 
 
 BLUEPRINT_PATH = Path("render.yaml")
+RENDER_START_PATH = Path("scripts/render_start.sh")
 
 
 def _blueprint() -> dict:
@@ -97,12 +98,15 @@ def test_ui_uses_generated_api_https_url_without_hardcoded_render_hostname():
 
 def test_blueprint_uses_exactly_one_free_tier_compatible_bootstrap_mechanism():
     api = _service(_blueprint(), "civiclens-api")
-    assert api["dockerCommand"] == (
-        '/bin/sh -c "python -m scripts.bootstrap && exec python -m uvicorn '
-        'api.main:app --host 0.0.0.0 --port ${PORT:-8000}"'
-    )
+    assert api["dockerCommand"] == "/bin/sh scripts/render_start.sh"
     assert "initialDeployHook" not in api
     assert "preDeployCommand" not in api
+
+    start_script = RENDER_START_PATH.read_text(encoding="utf-8")
+    bootstrap = start_script.index("python -m scripts.bootstrap")
+    uvicorn = start_script.index("exec python -m uvicorn api.main:app")
+    assert bootstrap < uvicorn
+    assert "--reindex" not in start_script
 
 
 def test_blueprint_contains_no_literal_database_url_or_credential():
