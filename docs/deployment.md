@@ -1,9 +1,10 @@
-# Render Deployment Proof Plan
+# Render Deployment Proof
 
 > **NON-PRODUCTION PORTFOLIO DEMO**
 >
-> Deployment configuration is prepared; live Render proof is pending. Do not
-> treat this document as evidence that CivicLens is currently deployed.
+> A live, dated Render smoke test passed on 2026-08-23 UTC. This is deployment
+> proof for a time-limited portfolio demo, not a production availability or
+> reliability commitment.
 
 ## Purpose and target
 
@@ -26,8 +27,9 @@ existing Render PostgreSQL/pgvector database
 
 Render was selected because it supports Docker-based web services, managed
 PostgreSQL with pgvector, declarative Blueprints, and straightforward teardown.
-The deployment targets Render Free services for dated portfolio proof. Live
-resource sufficiency remains to be validated during the cloud smoke test.
+The deployment uses Render Free services for dated portfolio proof. Their
+sufficiency for this bounded smoke test was validated; ongoing availability
+remains subject to Free-tier cold starts and platform limits.
 
 ## Existing-resource assumption
 
@@ -120,8 +122,35 @@ operator review.
   chunks, embedding profile, and vector availability.
 
 During initialization, `/health` can correctly return `200` while `/ready`
-returns `503`. After the hook succeeds, `/ready` must return `200` before any
-deployment proof is accepted.
+returns `503`. After startup bootstrap succeeds, `/ready` must return `200`
+before deployment proof is accepted.
+
+## Dated deployment evidence
+
+The following secret-free checks were completed against the existing
+`civiclens-rag-demo` Blueprint on 2026-08-23 UTC (2026-08-22 EDT):
+
+- Validated application commit: `954740c2b0e108f94f99d5da6f4291e1b421fe6d`.
+- API: <https://civiclens-api-o8ap.onrender.com>.
+- Streamlit: <https://civiclens-ui.onrender.com>.
+- API `GET /health`: HTTP `200`, `{"status":"ok"}`.
+- API `GET /ready`: HTTP `200`, status `ready`.
+- Bootstrap: migrations `0001` and `0002` tracked as already applied on the
+  successful deployment; 7 documents, 85 current chunks, and 85 compatible
+  deterministic embeddings were stored in the existing PostgreSQL database.
+- Cited-answer smoke: `What does complaint_type mean?` returned
+  `route=rag`, `status=answered`, and two validated sources with stable chunk
+  IDs and source paths.
+- Safe-no-answer smoke: `Explain the orbital pineapple parking treaty.`
+  returned `route=rag`, `status=abstained`, the normal safe answer text, and
+  zero sources.
+- Browser-driven Streamlit smoke: the hosted UI submitted the supported
+  question through FastAPI and rendered the answered route/status plus the
+  validated NYC 311 field-guide and RAG-design source metadata.
+
+The public response fields were limited to the provider-neutral answer
+contract. No retrieved chunk text, provider diagnostics, database URL,
+credentials, or raw provider payload appeared. OpenAI was disabled throughout.
 
 ## Manual Blueprint deployment
 
@@ -149,7 +178,7 @@ deployment proof is accepted.
 
 Do not delete or recreate `civiclens-postgres` during this process.
 
-## Validation plan
+## Reproduction validation checklist
 
 Live proof requires all of the following:
 
@@ -162,7 +191,7 @@ Live proof requires all of the following:
 - No raw database URL, password, provider payload, or stack trace appears in
   public responses or captured evidence.
 
-Until those checks run against Render, Issue 15 remains incomplete.
+The dated checks above satisfy this checklist for the recorded deployment.
 
 ## Free-tier and cost assumptions
 
@@ -190,11 +219,11 @@ security posture.
 
 ## Limitations
 
-- Live deployment, cloud readiness, URLs, screenshots, and smoke results are
-  still pending.
 - Free web services can cold-start and cannot receive private-network traffic;
   the UI therefore uses the API's generated external HTTPS URL.
 - Bootstrap runs before each API process start, so Free-service cold starts can
   take longer than a plain Uvicorn start.
+- The live URLs are time-limited evidence and may later be suspended or removed
+  under the documented teardown procedure.
 - This is a curated, deterministic portfolio demo, not a production NYC 311
   service or a production reliability claim.

@@ -56,7 +56,24 @@ FastAPI is a thin, provider-neutral HTTP boundary: it validates requests, calls 
 
 Docker Compose packages three local services: `ui` (Streamlit), `api` (FastAPI), and `postgres` (PostgreSQL/pgvector). Service-to-service traffic uses Compose DNS (`ui` to `api:8000`, API to `postgres:5432`), while host ports remain configurable. API container health uses `/health`, not `/ready`; therefore the UI and API can run while the corpus is still unprepared and `/ready` correctly reports `503`.
 
-The one-off `python -m scripts.bootstrap` workflow reuses the Issue 13 migration runner, manifest ingestion, section-aware chunking, and embedding/index storage in order. Normal reruns use stable IDs and upserts and never request destructive reindexing. PostgreSQL and the local model cache use named volumes. Runtime environment variables supply configuration and optional credentials; Dockerfiles contain no secrets or build-time secret arguments. This remains local development packaging rather than cloud or production infrastructure.
+The one-off `python -m scripts.bootstrap` workflow reuses the Issue 13 migration runner, manifest ingestion, section-aware chunking, and embedding/index storage in order. Normal reruns use stable IDs and upserts and never request destructive reindexing. PostgreSQL and the local model cache use named volumes. Runtime environment variables supply configuration and optional credentials; Dockerfiles contain no secrets or build-time secret arguments.
+
+## Render Cloud Deployment Boundary
+
+Issue 15 reuses the same containers and application boundaries for a dated
+Render portfolio demo: public Streamlit calls the public FastAPI contract, and
+FastAPI uses Render's internal connection to the existing managed
+PostgreSQL/pgvector database. The API startup script runs the same ordered,
+rerun-safe bootstrap before Uvicorn. The cloud profile uses deterministic
+1536-dimensional embeddings, hybrid retrieval without reranking, local answer
+generation, and disabled observability/OpenAI paths.
+
+On 2026-08-22 EDT, the Render API and Streamlit health checks were live,
+`/ready` returned `200`, a supported question returned validated stable-chunk
+provenance, and an unsupported question safely abstained. The public demo URLs
+and dated evidence are recorded in `docs/deployment.md`. This verifies one
+cloud deployment path; it does not establish high availability, autoscaling,
+production authentication, backups, an SLA, or a production NYC service.
 
 ## Observability and Feedback Boundary
 
@@ -64,4 +81,4 @@ Shared orchestration, not FastAPI, creates one `query_id` when `OBSERVABILITY_EN
 
 Only execution metadata, existing retrieval scores/ranks, stable source references, and bounded feedback are stored. Raw question and answer text, retrieved chunk text, vectors, secrets, authorization data, environment configuration, hidden reasoning, and provider payloads are excluded. Ordered checksummed SQL files migrate existing tables without an ORM or database reset.
 
-This local development architecture includes a Docker Compose deployment/demo, not a cloud or production deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, cloud deployment, streaming, rate limiting, and monitoring remain later-stage work.
+This local-first architecture includes both Docker Compose and one non-production Render portfolio deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, production cloud operations, streaming, rate limiting, and monitoring remain out of the demonstrated scope.
