@@ -139,8 +139,8 @@ non-production portfolio demo:
   chunk provenance, and an unsupported question safely abstained with no
   sources.
 
-The demo reuses the Issue 14 Docker images and the existing private Render
-PostgreSQL/pgvector database. It uses deterministic embeddings and the local
+The demo reuses the Issue 14 Dockerfiles and containerized architecture with
+the existing private Render PostgreSQL/pgvector database. It uses deterministic embeddings and the local
 answer provider, so no OpenAI key or paid LLM call is required. Free services
 can cold-start and the URLs are not a production availability commitment. See
 [the deployment proof and teardown notes](docs/deployment.md).

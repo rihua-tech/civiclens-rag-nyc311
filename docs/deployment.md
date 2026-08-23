@@ -116,14 +116,15 @@ operator review.
 
 ## Health and readiness
 
-- `GET /health` checks only that FastAPI is alive. Render uses this endpoint
-  while the first bootstrap may still be pending.
+- During bootstrap, the FastAPI process may not yet be available. After
+  bootstrap succeeds, `scripts/render_start.sh` starts Uvicorn.
+- `GET /health` then checks only that the FastAPI process is alive.
 - `GET /ready` checks the PostgreSQL schema, current manifest documents and
   chunks, embedding profile, and vector availability.
 
-During initialization, `/health` can correctly return `200` while `/ready`
-returns `503`. After startup bootstrap succeeds, `/ready` must return `200`
-before deployment proof is accepted.
+After startup bootstrap succeeds and Uvicorn is running, `/ready` must return
+`200` to verify that the prepared RAG/PostgreSQL backend is ready before
+deployment proof is accepted.
 
 ## Dated deployment evidence
 
