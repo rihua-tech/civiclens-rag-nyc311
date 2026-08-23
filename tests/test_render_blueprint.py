@@ -97,12 +97,12 @@ def test_ui_uses_generated_api_https_url_without_hardcoded_render_hostname():
 
 def test_blueprint_uses_exactly_one_free_tier_compatible_bootstrap_mechanism():
     api = _service(_blueprint(), "civiclens-api")
-    hook_bootstrap = api.get("initialDeployHook") == "python -m scripts.bootstrap"
-    command_bootstrap = "scripts.bootstrap" in str(api.get("dockerCommand", ""))
-
-    assert hook_bootstrap + command_bootstrap == 1
+    assert api["dockerCommand"] == (
+        "/bin/sh -c 'python -m scripts.bootstrap && exec python -m uvicorn "
+        "api.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
+    )
+    assert "initialDeployHook" not in api
     assert "preDeployCommand" not in api
-    assert "dockerCommand" not in api
 
 
 def test_blueprint_contains_no_literal_database_url_or_credential():

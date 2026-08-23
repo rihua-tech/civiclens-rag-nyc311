@@ -51,13 +51,12 @@ desired.
 
 ### Source branch behavior
 
-During Phase 1, the Blueprint definition is reviewed and selected from the
-`issue-15-cloud-deployment` branch. Neither service sets a `branch`. Under
-Render's current Blueprint behavior, a service without that setting uses the
-repository's default branch, which is currently `main`. This is intentional:
-Phase 1 adds deployment configuration, documentation, and tests without
-changing the application runtime, so the services use the merged Issue 14
-application baseline on `main` rather than pinning a temporary feature branch.
+During the live Blueprint creation, the Blueprint definition was selected from
+the `issue-15-cloud-deployment` branch. Although neither service sets a
+`branch` in `render.yaml`, Render linked both created services to that selected
+Blueprint branch. This was verified from the live service configuration and
+deploy logs. Before the feature branch is eventually deleted, the services
+must be relinked to `main` after the reviewed Issue 15 changes are merged.
 
 `render.yaml` creates only:
 
@@ -76,16 +75,19 @@ timeout is 60 seconds to accommodate Free-service cold starts.
 
 ## Bootstrap strategy
 
-The API service uses exactly one initialization mechanism:
+The API service uses exactly one initialization mechanism and gates API
+startup on its success:
 
 ```text
-initialDeployHook: python -m scripts.bootstrap
+dockerCommand: /bin/sh -c 'python -m scripts.bootstrap && exec python -m uvicorn ...'
 ```
 
-Render runs the hook once after the API service's first successful deploy.
-This is preferable to placing bootstrap in the process start command because a
-Free service can cold-start repeatedly. It also avoids `preDeployCommand`,
-which Render reserves for paid web services.
+The first live Blueprint deploy did not execute its configured
+`initialDeployHook`: the service reached Live and started Uvicorn without any
+bootstrap, migration, ingestion, chunking, or embedding log entries. The
+startup command is therefore the reliable Free-service fallback. Bootstrap
+must complete before Uvicorn starts; a bootstrap failure keeps the API from
+claiming liveness or readiness. No paid `preDeployCommand` is used.
 
 The existing bootstrap remains unchanged and runs:
 
@@ -99,11 +101,12 @@ an automatic destructive reindex. An incompatible stored embedding profile
 fails clearly and requires explicit operator review. Historical migrations
 `0001` and `0002` are used unchanged.
 
-`initialDeployHook` is a one-time initialization hook, not an ongoing migration
-or corpus-update mechanism. Future schema or corpus changes need a separately
-reviewed operator workflow. If the hook does not complete successfully, stop
-the deployment review and investigate the Render logs; do not claim the RAG
-backend is ready.
+The command can run again on a deploy, restart, or Free-service cold start.
+That tradeoff is acceptable for this time-limited demo because migrations are
+version/checksum tracked and ingestion, chunking, and compatible embeddings use
+stable IDs and upserts. The command never requests destructive reindexing. An
+incompatible stored embedding profile still fails and requires explicit
+operator review.
 
 ## Health and readiness
 
@@ -130,7 +133,7 @@ deployment proof is accepted.
 6. Confirm `DATABASE_URL` references the existing `civiclens-postgres`; no new
    PostgreSQL instance should appear in the plan.
 7. Confirm both services are in Oregon and automatic deploys are disabled.
-8. Sync/deploy the Blueprint and inspect build, deploy, and initial-hook logs.
+8. Sync/deploy the Blueprint and inspect build, bootstrap, and runtime logs.
 9. Wait for `python -m scripts.bootstrap` to report successful migrations,
    ingestion, chunking, and embedding storage.
 10. Open the generated API URL and verify `/health`, then `/ready`.
@@ -187,7 +190,7 @@ security posture.
   still pending.
 - Free web services can cold-start and cannot receive private-network traffic;
   the UI therefore uses the API's generated external HTTPS URL.
-- The one-time initialization hook does not automatically bootstrap later
-  corpus or migration changes.
+- Bootstrap runs before each API process start, so Free-service cold starts can
+  take longer than a plain Uvicorn start.
 - This is a curated, deterministic portfolio demo, not a production NYC 311
   service or a production reliability claim.
