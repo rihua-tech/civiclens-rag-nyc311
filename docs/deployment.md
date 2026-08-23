@@ -79,8 +79,11 @@ The API service uses exactly one initialization mechanism and gates API
 startup on its success:
 
 ```text
-dockerCommand: /bin/sh -c 'python -m scripts.bootstrap && exec python -m uvicorn ...'
+dockerCommand: python -m scripts.bootstrap && exec python -m uvicorn ...
 ```
+
+Render executes a Docker command override through its command shell, so the
+Blueprint does not add another quoted `/bin/sh -c` wrapper.
 
 The first live Blueprint deploy did not execute its configured
 `initialDeployHook`: the service reached Live and started Uvicorn without any
