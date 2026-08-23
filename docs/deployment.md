@@ -130,13 +130,13 @@ before deployment proof is accepted.
 The following secret-free checks were completed against the existing
 `civiclens-rag-demo` Blueprint on 2026-08-23 UTC (2026-08-22 EDT):
 
-- Validated application commit: `954740c2b0e108f94f99d5da6f4291e1b421fe6d`.
+- Validated application commit: `5596d90b68428b7a55133036830786c98b7be614`.
 - API: <https://civiclens-api-o8ap.onrender.com>.
 - Streamlit: <https://civiclens-ui.onrender.com>.
 - API `GET /health`: HTTP `200`, `{"status":"ok"}`.
 - API `GET /ready`: HTTP `200`, status `ready`.
 - Bootstrap: migrations `0001` and `0002` tracked as already applied on the
-  successful deployment; 7 documents, 85 current chunks, and 85 compatible
+  successful deployment; 7 documents, 87 current chunks, and 87 compatible
   deterministic embeddings were stored in the existing PostgreSQL database.
 - Cited-answer smoke: `What does complaint_type mean?` returned
   `route=rag`, `status=answered`, and two validated sources with stable chunk
