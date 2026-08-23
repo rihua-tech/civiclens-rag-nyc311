@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml/badge.svg)](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml)
 
-CivicLens RAG is a local AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, real local semantic embeddings, PostgreSQL semantic + lexical retrieval, simple predefined analytics summaries, and containerized Streamlit/FastAPI application interfaces.
+CivicLens RAG is a local-first AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, real local semantic embeddings, PostgreSQL semantic + lexical retrieval, simple predefined analytics summaries, and containerized Streamlit/FastAPI application interfaces.
 
 The project is designed to show how an operational data platform can pair documentation retrieval with lightweight analytics answers while keeping outputs grounded, cited, and honest about current limitations.
 
@@ -17,8 +17,9 @@ The project is designed to show how an operational data platform can pair docume
 - Issue 10 provides a versioned 24-question RAG evaluation with Recall@5, MRR, routing, citation, and safe no-answer metrics.
 - Issue 11 keeps local answers as the default and isolates one opt-in OpenAI answer provider behind grounded structured output and application-controlled citation validation.
 - Issue 13 adds opt-in privacy-conscious execution metadata, stable `query_id` tracing, feedback, and ordered SQL migrations without storing raw questions or answers.
+- A dated Render deployment proves the Streamlit -> FastAPI -> PostgreSQL/pgvector path with deterministic embeddings, a cited answer, and safe abstention.
 - GitHub Actions runs offline-safe pytest and compileall checks.
-- Local Docker Compose deployment only; no cloud/production deployment, live NYC 311 data, default OpenAI calls, or production text-to-SQL claims.
+- Local Docker Compose and a non-production Render portfolio demo are available; there is no production deployment, live NYC 311 data, default OpenAI usage, or production text-to-SQL claim.
 
 ## Why This Project Matters
 
@@ -125,6 +126,25 @@ The local PostgreSQL schema includes:
 - `feedback`: helpful/not-helpful feedback and an optional bounded comment linked to a known query.
 - `schema_migrations`: applied migration versions, names, checksums, and timestamps.
 
+## Render Cloud Demo
+
+Issue 15 was validated on Render on 2026-08-22 EDT as a time-limited,
+non-production portfolio demo:
+
+- Streamlit: <https://civiclens-ui.onrender.com>
+- FastAPI: <https://civiclens-api-o8ap.onrender.com>
+- Liveness: `GET /health` returned `200`.
+- RAG readiness: `GET /ready` returned `200` after the rerun-safe bootstrap.
+- A supported field-definition question returned a grounded answer with stable
+  chunk provenance, and an unsupported question safely abstained with no
+  sources.
+
+The demo reuses the Issue 14 Dockerfiles and containerized architecture with
+the existing private Render PostgreSQL/pgvector database. It uses deterministic embeddings and the local
+answer provider, so no OpenAI key or paid LLM call is required. Free services
+can cold-start and the URLs are not a production availability commitment. See
+[the deployment proof and teardown notes](docs/deployment.md).
+
 ## Docker Compose Demo
 
 Docker Engine with Docker Compose v2 is the recommended demo prerequisite. Create a local `.env` from `.env.example` only when overriding runtime defaults, choose a local PostgreSQL password, and never commit that file. Secrets are supplied at container runtime; they are not copied into images or passed as build arguments.
@@ -210,7 +230,7 @@ curl -X POST http://localhost:8000/api/v1/feedback \
   -d '{"query_id":"<query_id from the answer>","rating":"helpful","comment":"Useful source."}'
 ```
 
-The answer request accepts a nonblank `question` of at most 2,000 characters and an optional `top_k` from 1 through 100. The typed response contains `answer`, provider-neutral `route` and `status`, validated source summaries, an optional confidence note, and a `query_id` when observability is enabled. Streamlit renders that same public response. It deliberately omits raw retrieved text, provider payloads, settings, credentials, database URLs, stack traces, and internal diagnostics. Backend failures use sanitized error responses. This API is local and in progress; it is not a production deployment.
+The answer request accepts a nonblank `question` of at most 2,000 characters and an optional `top_k` from 1 through 100. The typed response contains `answer`, provider-neutral `route` and `status`, validated source summaries, an optional confidence note, and a `query_id` when observability is enabled. Streamlit renders that same public response. It deliberately omits raw retrieved text, provider payloads, settings, credentials, database URLs, stack traces, and internal diagnostics. Backend failures use sanitized error responses. This API is local-first and portfolio-scale; it is not a production service.
 
 ### Observability, Privacy, and Feedback
 
@@ -264,7 +284,7 @@ These screenshots are captured from a local Streamlit run.
 
 ## Limitations
 
-- Local Docker Compose deployment/demo only; no cloud or production deployment.
+- Local Docker Compose and a time-limited Render portfolio demo are validated; there is no production deployment or availability commitment.
 - No orchestration platform, authentication, streaming, rate limiting, or production SLA.
 - Not connected to live NYC 311 data.
 - No default OpenAI calls.
@@ -278,7 +298,6 @@ These screenshots are captured from a local Streamlit run.
 
 ## Future Work
 
-- Add a small cloud deployment proof.
 - Add safe typed analytics tools and a bounded LangGraph workflow.
 - Optionally demonstrate vector-store and RAG-framework portability.
 

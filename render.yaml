@@ -1,0 +1,56 @@
+services:
+  - name: civiclens-api
+    type: web
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile.api
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: "off"
+    dockerCommand: /bin/sh scripts/render_start.sh
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: civiclens-postgres
+          property: connectionString
+      - key: EMBEDDING_PROVIDER
+        value: deterministic
+      - key: EMBEDDING_MODEL
+        value: local-deterministic-1536
+      - key: EMBEDDING_DIMENSION
+        value: "1536"
+      - key: RETRIEVAL_MODE
+        value: hybrid
+      - key: RERANKING_ENABLED
+        value: "false"
+      - key: ANSWER_PROVIDER
+        value: local
+      - key: USE_OPENAI_ANSWERS
+        value: "false"
+      - key: USE_OPENAI_EMBEDDINGS
+        value: "false"
+      - key: OBSERVABILITY_ENABLED
+        value: "false"
+      - key: PORT
+        value: "8000"
+
+  - name: civiclens-ui
+    type: web
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile.ui
+    dockerContext: .
+    healthCheckPath: /_stcore/health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: CIVICLENS_API_BASE_URL
+        fromService:
+          type: web
+          name: civiclens-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: CIVICLENS_API_TIMEOUT_SECONDS
+        value: "60"
+      - key: PORT
+        value: "8501"

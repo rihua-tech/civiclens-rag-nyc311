@@ -89,8 +89,8 @@ def main() -> None:
         "and small predefined analytics summaries."
     )
     st.info(
-        "Local Docker Compose or host demo only. This is not a cloud or production "
-        "deployment and is not connected to live NYC 311 data."
+        "Non-production portfolio demo using curated documentation and sample "
+        "analytics; it is not connected to live NYC 311 operational data."
     )
 
     selected_example = st.selectbox(
