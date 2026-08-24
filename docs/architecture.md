@@ -26,9 +26,10 @@ flowchart TD
     ui --> api["FastAPI<br/>/api/v1/answer"]
     api --> orchestrator["Shared question orchestration"]
     orchestrator --> dense
-    orchestrator --> router["Simple analytics router"]
-    samples --> router
-    router --> analyticsAnswer["Predefined analytics answer"]
+    orchestrator --> analyticsRouter["Predefined analytics router"]
+    analyticsRouter --> analyticsRegistry["Fixed typed tool registry"]
+    samples --> analyticsRegistry
+    analyticsRegistry --> analyticsAnswer["Bounded analytics result"]
     answer --> result["Provider-neutral application result"]
     analyticsAnswer --> result
     result --> api
@@ -41,6 +42,25 @@ flowchart TD
 This source explains the CivicLens project architecture: in the NYC 311 Lakehouse design, document ingestion feeds semantic and lexical retrieval, and retrieved evidence with provenance feeds grounded cited answers. Streamlit uses the versioned FastAPI contract, and the adapter delegates to a shared question orchestrator that owns the analytics-versus-RAG decision. The orchestrator stays reusable outside HTTP.
 
 At the application level, CivicLens still routes documentation questions to RAG and simple analytics questions to predefined sample outputs. Inside the documentation RAG path, Issue 9 hybrid retrieval means dense semantic retrieval plus PostgreSQL lexical retrieval, combined deterministically with Reciprocal Rank Fusion (RRF). The optional cross-encoder reranks only a configured candidate limit.
+
+## Safe Typed Analytics Tool Boundary
+
+The direct analytics router maps supported question patterns to exactly four
+fixed tool IDs: `top_complaint_types`, `borough_request_volume`,
+`agency_request_volume`, and `backlog_summary`. An immutable registry is the
+only supported resolver. Each tool has a strict Pydantic input schema that
+rejects unknown fields and coercion; ranked results accept only a bounded
+integer limit from 1 through 10, while the fixed backlog summary accepts no
+arguments.
+
+Tools read only their hard-coded checked-in sample CSV path. They do not accept
+table, column, filename, module, function, SQL, or code selections. Results
+contain the stable tool ID and name, summary, tool-specific typed rows,
+application-owned source provenance, and the sample/non-production disclaimer.
+The current CSV files contain no source timestamp, so the optional provenance
+timestamp remains unset rather than being invented. A compatibility adapter
+preserves the existing FastAPI, Streamlit, observability, and evaluation result
+contract. CivicLens does not implement unrestricted production text-to-SQL.
 
 ## Design Principle
 
