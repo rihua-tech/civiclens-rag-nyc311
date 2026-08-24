@@ -1,16 +1,22 @@
-"""Predefined sample analytics answers for the local hybrid RAG UI.
+"""Predefined analytics routing backed by safe typed tools.
 
-This module intentionally uses small static CSV outputs. It is not a
-text-to-SQL router and does not query production or raw NYC 311 data.
+Natural-language detection selects only fixed registry IDs. Tool execution is
+read-only, CSV-backed, and never accepts SQL, code, modules, or file paths.
 """
 
 from __future__ import annotations
 
-import csv
-from pathlib import Path
+from typing import Any
+
+from src.analytics.tools import (
+    DEFAULT_ANALYTICS_RESULT_LIMIT,
+    AnalyticsToolId,
+    AnalyticsToolResult,
+    execute_analytics_tool,
+)
+from src.analytics.tools.definitions import load_sample_output as _load_sample_output
 
 
-SAMPLE_OUTPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "sample_outputs"
 ANALYTICS_FALLBACK = (
     "I can answer only the predefined sample analytics questions for this local demo. "
     "Try asking about top complaint types, borough complaint volume, agency request volume, "
@@ -39,101 +45,69 @@ FIELD_DEFINITION_CUES = (
 
 
 def load_sample_output(file_name: str) -> list[dict[str, str]]:
-    """Load one of the checked-in sample analytics CSV outputs."""
+    """Compatibility loader restricted to the four allowlisted sample files."""
 
-    path = SAMPLE_OUTPUT_DIR / file_name
-    if not path.is_file():
-        raise FileNotFoundError(f"Sample analytics output not found: {path}")
-
-    with path.open("r", encoding="utf-8", newline="") as csv_file:
-        return list(csv.DictReader(csv_file))
+    return _load_sample_output(file_name)
 
 
-def parse_count(value: str) -> int:
-    return int(value.replace(",", "").strip())
+def _legacy_row(row: Any) -> dict[str, Any]:
+    serialized = row.model_dump(mode="json")
+    if "request_count" in serialized:
+        serialized["request_count"] = str(serialized["request_count"])
+    return serialized
 
 
-def format_count(value: str | int) -> str:
-    return f"{int(value):,}"
+def tool_result_to_analytics_response(result: AnalyticsToolResult) -> dict[str, Any]:
+    """Adapt typed tool output to the existing application result contract."""
 
-
-def source(file_name: str) -> dict[str, str]:
+    sources = [
+        {
+            "source_name": item.source_name,
+            "source_path": item.source_path,
+            "chunk_id": item.chunk_id,
+        }
+        for item in result.provenance
+    ]
     return {
-        "source_name": file_name,
-        "source_path": f"data/sample_outputs/{file_name}",
-        "chunk_id": "sample_output",
-    }
-
-
-def top_complaint_types_answer() -> dict:
-    rows = load_sample_output("top_complaint_types.csv")
-    top_rows = rows[:5]
-    summary = "; ".join(
-        f"{row['complaint_type']} ({format_count(row['request_count'])})"
-        for row in top_rows
-    )
-    answer = f"The top sample complaint types are: {summary}."
-    return analytics_response(answer, [source("top_complaint_types.csv")], rows)
-
-
-def borough_volume_answer() -> dict:
-    rows = load_sample_output("requests_by_borough.csv")
-    sorted_rows = sorted(rows, key=lambda row: parse_count(row["request_count"]), reverse=True)
-    leader = sorted_rows[0]
-    summary = "; ".join(
-        f"{row['borough']} ({format_count(row['request_count'])})"
-        for row in sorted_rows[:5]
-    )
-    answer = (
-        f"{leader['borough']} has the highest sample complaint volume "
-        f"with {format_count(leader['request_count'])} requests. Borough totals: {summary}."
-    )
-    return analytics_response(answer, [source("requests_by_borough.csv")], sorted_rows)
-
-
-def agency_volume_answer() -> dict:
-    rows = load_sample_output("agency_request_volume.csv")
-    sorted_rows = sorted(rows, key=lambda row: parse_count(row["request_count"]), reverse=True)
-    summary = "; ".join(
-        f"{row['agency']} ({format_count(row['request_count'])})"
-        for row in sorted_rows[:5]
-    )
-    answer = f"The agencies handling the most sample requests are: {summary}."
-    return analytics_response(answer, [source("agency_request_volume.csv")], sorted_rows)
-
-
-def backlog_summary_answer() -> dict:
-    rows = load_sample_output("backlog_summary.csv")
-    counts = {row["status"].lower(): parse_count(row["request_count"]) for row in rows}
-    open_count = counts.get("open", 0)
-    in_progress_count = counts.get("in progress", 0)
-    overdue_count = counts.get("overdue", 0)
-    closed_recently = counts.get("closed last 7 days", 0)
-    answer = (
-        "The sample backlog summary shows "
-        f"{format_count(open_count)} open requests, "
-        f"{format_count(in_progress_count)} in progress, "
-        f"{format_count(overdue_count)} overdue, and "
-        f"{format_count(closed_recently)} closed in the last 7 days."
-    )
-    return analytics_response(answer, [source("backlog_summary.csv")], rows)
-
-
-def analytics_response(answer: str, sources: list[dict], rows: list[dict]) -> dict:
-    return {
-        "answer": answer,
+        "answer": result.summary,
         "sources": sources,
-        "confidence_note": (
-            "Sample analytics answer from checked-in CSV outputs only; "
-            "not live NYC 311 data and not a production text-to-SQL result."
-        ),
+        "confidence_note": result.disclaimer,
         "retrieved_chunks": [],
-        "sample_rows": rows,
+        "sample_rows": [_legacy_row(row) for row in result.rows],
         "mode": "analytics",
     }
 
 
-def answer_analytics_question(question: str) -> dict:
+def top_complaint_types_answer() -> dict[str, Any]:
+    result = execute_analytics_tool(
+        AnalyticsToolId.TOP_COMPLAINT_TYPES,
+        {"limit": DEFAULT_ANALYTICS_RESULT_LIMIT},
+    )
+    return tool_result_to_analytics_response(result)
+
+
+def borough_volume_answer() -> dict[str, Any]:
+    result = execute_analytics_tool(
+        AnalyticsToolId.BOROUGH_REQUEST_VOLUME,
+        {"limit": DEFAULT_ANALYTICS_RESULT_LIMIT},
+    )
+    return tool_result_to_analytics_response(result)
+
+
+def agency_volume_answer() -> dict[str, Any]:
+    result = execute_analytics_tool(
+        AnalyticsToolId.AGENCY_REQUEST_VOLUME,
+        {"limit": DEFAULT_ANALYTICS_RESULT_LIMIT},
+    )
+    return tool_result_to_analytics_response(result)
+
+
+def backlog_summary_answer() -> dict[str, Any]:
+    result = execute_analytics_tool(AnalyticsToolId.BACKLOG_SUMMARY, {})
+    return tool_result_to_analytics_response(result)
+
+
+def answer_analytics_question(question: str) -> dict[str, Any]:
     normalized = " ".join(question.lower().split())
 
     if not normalized:
@@ -150,7 +124,9 @@ def answer_analytics_question(question: str) -> dict:
         or "complaint" in normalized
     ):
         return borough_volume_answer()
-    if "agenc" in normalized and ("most" in normalized or "volume" in normalized or "requests" in normalized):
+    if "agenc" in normalized and (
+        "most" in normalized or "volume" in normalized or "requests" in normalized
+    ):
         return agency_volume_answer()
     if "backlog" in normalized or "overdue" in normalized:
         return backlog_summary_answer()
@@ -173,7 +149,7 @@ def looks_like_field_definition_question(normalized_question: str) -> bool:
     return any(cue in normalized_question for cue in FIELD_DEFINITION_CUES)
 
 
-def fallback_response() -> dict:
+def fallback_response() -> dict[str, Any]:
     return {
         "answer": ANALYTICS_FALLBACK,
         "sources": [],

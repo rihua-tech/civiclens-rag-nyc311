@@ -17,6 +17,7 @@ The project is designed to show how an operational data platform can pair docume
 - Issue 10 provides a versioned 24-question RAG evaluation with Recall@5, MRR, routing, citation, and safe no-answer metrics.
 - Issue 11 keeps local answers as the default and isolates one opt-in OpenAI answer provider behind grounded structured output and application-controlled citation validation.
 - Issue 13 adds opt-in privacy-conscious execution metadata, stable `query_id` tracing, feedback, and ordered SQL migrations without storing raw questions or answers.
+- Issue 16 exposes the four predefined sample analytics capabilities through strict typed, allowlisted, read-only tools with fixed IDs, bounded results, and source provenance.
 - A dated Render deployment proves the Streamlit -> FastAPI -> PostgreSQL/pgvector path with deterministic embeddings, a cited answer, and safe abstention.
 - GitHub Actions runs offline-safe pytest and compileall checks.
 - Local Docker Compose and a non-production Render portfolio demo are available; there is no production deployment, live NYC 311 data, default OpenAI usage, or production text-to-SQL claim.
@@ -54,9 +55,10 @@ flowchart TD
     ui --> api["FastAPI<br/>/api/v1/answer"]
     api --> orchestrator["Shared question orchestration"]
     orchestrator --> semantic
-    orchestrator --> analyticsRouter["Simple analytics router"]
-    sampleAnalytics --> analyticsRouter
-    analyticsRouter --> analyticsAnswer["Predefined analytics answer"]
+    orchestrator --> analyticsRouter["Predefined analytics router"]
+    analyticsRouter --> analyticsRegistry["Fixed typed tool registry"]
+    sampleAnalytics --> analyticsRegistry
+    analyticsRegistry --> analyticsAnswer["Bounded analytics result"]
     answer --> result["Provider-neutral application result"]
     analyticsAnswer --> result
     result --> api
@@ -217,7 +219,7 @@ Start the host-local API with `uvicorn api.main:app`. It exposes:
 - `POST /api/v1/answer` for the shared analytics/RAG question flow.
 - `POST /api/v1/feedback` for helpful/not-helpful feedback linked to a known observed query.
 
-OpenAI remains optional. Liveness and readiness never require an OpenAI key, call a paid provider, load a model, or generate an answer. Analytics requests continue to use only the predefined checked-in sample CSV outputs.
+OpenAI remains optional. Liveness and readiness never require an OpenAI key, call a paid provider, load a model, or generate an answer. Analytics requests continue to use only the predefined checked-in sample CSV outputs through four fixed typed tool IDs. The immutable allowlist rejects unknown tools, extra fields, malformed values, and out-of-range limits; it never executes user- or LLM-generated SQL or arbitrary Python.
 
 ```bash
 curl http://localhost:8000/health
@@ -290,7 +292,7 @@ These screenshots are captured from a local Streamlit run.
 - No default OpenAI calls.
 - The opt-in OpenAI answer provider has been manually live-verified with grounded-answer, citation-validation, abstention, and adversarial-input smoke tests; automated tests and CI remain mock/offline-only.
 - Local semantic and reranker models require memory/disk and may download weights on first use.
-- Simple analytics router, not production text-to-SQL.
+- Fixed typed sample analytics tools, not unrestricted production text-to-SQL.
 - Small curated documents and sample outputs only.
 - Official source material is a curated field guide, not a live or complete copy of NYC 311 Open Data.
 - Evaluation is a small curated portfolio benchmark and does not use an LLM judge.
@@ -298,7 +300,7 @@ These screenshots are captured from a local Streamlit run.
 
 ## Future Work
 
-- Add safe typed analytics tools and a bounded LangGraph workflow.
+- Add a bounded LangGraph workflow over the existing safe typed tools.
 - Optionally demonstrate vector-store and RAG-framework portability.
 
 ## Tech Stack
@@ -352,6 +354,7 @@ civiclens-rag-nyc311/
 |   `-- schema.sql
 |-- src/
 |   |-- analytics/
+|   |   `-- tools/
 |   |-- chunking/
 |   |-- common/
 |   |-- embeddings/
