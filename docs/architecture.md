@@ -10,13 +10,20 @@ flowchart TD
     manifest --> ingestion
     docs --> ingestion["Document ingestion"]
     ingestion --> chunking["Normalized text + section-aware chunking"]
+    chunking --> postgres["Canonical PostgreSQL metadata<br/>chunk text + provenance + hashes + lexical"]
     chunking --> provider["Configurable embedding provider"]
     provider --> semantic["Local Sentence Transformers<br/>default semantic mode"]
     provider --> fallback["Deterministic CI fallback<br/>or opt-in OpenAI"]
-    semantic --> pgvector["PostgreSQL + pgvector"]
-    fallback --> pgvector
-    pgvector --> dense["Dense semantic retrieval"]
-    pgvector --> lexical["PostgreSQL full-text retrieval"]
+    semantic --> vectorContract["Small dense-vector contract"]
+    fallback --> vectorContract
+    vectorContract --> pgvector["pgvector adapter<br/>default"]
+    vectorContract --> pinecone["Pinecone adapter<br/>optional"]
+    pgvector --> vectorMatches["Stable chunk IDs + cosine scores"]
+    pinecone --> vectorMatches
+    vectorMatches --> hydration["PostgreSQL hydration<br/>current-corpus validation"]
+    postgres --> hydration
+    hydration --> dense["Dense semantic results"]
+    postgres --> lexical["PostgreSQL full-text retrieval"]
     dense --> rrf["Reciprocal Rank Fusion"]
     lexical --> rrf
     rrf --> reranker["Optional bounded cross-encoder reranker"]
@@ -79,15 +86,19 @@ The source manifest distinguishes curated external NYC 311 knowledge from CivicL
 
 The normal local semantic provider is `sentence-transformers/all-MiniLM-L6-v2`, which produces 384-dimensional vectors. It is a compact English sentence/paragraph model suitable for this small curated corpus. The deterministic 1536-dimensional provider remains available for tests and offline-safe CI, while the existing OpenAI embedding path remains opt-in.
 
-The two vector dimensions use separate pgvector columns, and stored rows record provider, model, and dimension. Retrieval rejects unrecorded, mixed, or incompatible profiles instead of treating their vectors as interchangeable. Changing model or dimension requires a full, explicit re-embedding/reindex operation described in `docs/rag-design.md`.
+The default pgvector adapter uses the existing two dimension-specific columns, and stored rows record provider, model, and dimension. The optional Pinecone adapter targets an operator-created cosine index with the exact configured dimension and stores CivicLens vectors under a deterministic current-corpus namespace. Both providers preserve stable chunk IDs, cosine scores, ranks, candidate limits, minimum similarity, and deterministic ordering. There is exactly one selected provider per process; no dual write or fallback occurs.
 
-FastAPI is a thin, provider-neutral HTTP boundary: it validates requests, calls the shared orchestration layer, serializes allow-listed answer/source fields, and sanitizes errors. It does not duplicate retrieval, analytics, grounding, or citation logic. `/health` is dependency-free liveness; `/ready` cheaply checks the local PostgreSQL RAG schema and compatible current embedded corpus without loading models, calling OpenAI, generating answers, or mutating data.
+PostgreSQL remains authoritative regardless of vector-provider selection. Bootstrap commits document/chunk text, provenance, corpus hashes, and lexical data before vector synchronization. Dense matches are only IDs, scores, and consistency metadata until PostgreSQL hydration proves that every result belongs to the current corpus. Pinecone never replaces lexical retrieval, RRF, reranking, generation, citation validation, observability, or orchestration.
+
+ADR 001 selects LangChain Core over LlamaIndex Core for the only Issue 18 framework adapter. The adapter lazily exposes native CivicLens retrieval as LangChain `BaseRetriever`/`Document` types and maps stable identity, source metadata, score, and rank. It does not introduce a LangChain RAG, answer, citation, or agent path. Native CivicLens remains the default, and external framework-generated answers do not inherit CivicLens citation-validation or abstention guarantees.
+
+FastAPI is a thin, provider-neutral HTTP boundary: it validates requests, calls the shared orchestration layer, serializes allow-listed answer/source fields, and sanitizes errors. It does not duplicate retrieval, analytics, grounding, or citation logic. `/health` is dependency-free liveness; `/ready` always checks PostgreSQL metadata/lexical state and read-only compatibility/completeness of the selected dense-vector provider without loading models, generating answers, or mutating data. Pinecone checks use configured bounded SDK timeouts/retries.
 
 ## Local Container Boundary
 
 Docker Compose packages three local services: `ui` (Streamlit), `api` (FastAPI), and `postgres` (PostgreSQL/pgvector). Service-to-service traffic uses Compose DNS (`ui` to `api:8000`, API to `postgres:5432`), while host ports remain configurable. API container health uses `/health`, not `/ready`; therefore the UI and API can run while the corpus is still unprepared and `/ready` correctly reports `503`.
 
-The one-off `python -m scripts.bootstrap` workflow reuses the Issue 13 migration runner, manifest ingestion, section-aware chunking, and embedding/index storage in order. Normal reruns use stable IDs and upserts and never request destructive reindexing. PostgreSQL and the local model cache use named volumes. Runtime environment variables supply configuration and optional credentials; Dockerfiles contain no secrets or build-time secret arguments.
+The one-off `python -m scripts.bootstrap` workflow reuses the Issue 13 migration runner, manifest ingestion, section-aware chunking, canonical PostgreSQL persistence, embedding, selected-provider synchronization, and compatibility verification in order. Normal reruns use stable IDs and upserts and never request destructive reindexing. Provider failures stop bootstrap rather than falling back. PostgreSQL and the local model cache use named volumes. Runtime environment variables supply configuration and optional credentials; Dockerfiles contain no secrets or build-time secret arguments.
 
 ## Render Cloud Deployment Boundary
 

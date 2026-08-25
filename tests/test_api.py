@@ -385,10 +385,11 @@ def test_readiness_accepts_complete_current_corpus_without_openai_key():
         "database_url": "postgresql://local/test",
         "connect_timeout": 3,
     }
-    assert "SELECT DISTINCT" in cursor.queries[1][0]
-    assert "FROM documents" in cursor.queries[2][0]
-    assert "semantic_embedding" in cursor.queries[3][0]
-    assert cursor.queries[3][1] == (
+    assert "FROM documents" in cursor.queries[1][0]
+    assert "search_vector IS NOT NULL" in cursor.queries[2][0]
+    assert "SELECT DISTINCT" in cursor.queries[3][0]
+    assert "semantic_embedding" in cursor.queries[4][0]
+    assert cursor.queries[4][1] == (
         384,
         "sentence_transformers",
         "sentence-transformers/all-MiniLM-L6-v2",
@@ -459,7 +460,7 @@ def test_readiness_rejects_missing_schema_and_connection_failure():
     assert unavailable == ReadinessResult(
         False,
         "backend_unavailable",
-        "Local PostgreSQL/pgvector backend is unavailable.",
+        "Canonical PostgreSQL metadata/lexical backend is unavailable.",
     )
 
 
@@ -479,7 +480,7 @@ def test_readiness_rejects_an_incompatible_stored_embedding_profile():
     assert result == ReadinessResult(
         False,
         "embedding_profile_incompatible",
-        "Stored chunks are incompatible with the configured embedding profile.",
+        "Stored vectors are incompatible with the embedding profile.",
     )
 
 

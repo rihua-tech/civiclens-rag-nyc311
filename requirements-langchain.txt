@@ -1,0 +1,2 @@
+# Optional Issue 18 compatibility adapter. Native CivicLens RAG does not require it.
+langchain-core>=1.2,<2

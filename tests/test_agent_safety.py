@@ -181,6 +181,7 @@ def test_recursion_limit_is_passed_and_failure_becomes_safe_fallback():
         compiled_workflow=LoopingGraph(),
     )
 
+    assert result["mode"] == "rag"
     assert result["answer_status"] == "abstained"
     assert result["orchestration_outcome"] == "limit_exceeded"
     assert result["orchestration_step_count"] == 8
@@ -224,6 +225,7 @@ def test_malformed_graph_result_returns_controlled_fallback(malformed_result):
         ),
     )
 
+    assert result["mode"] == "rag"
     assert result["answer_status"] == "abstained"
     assert result["sources"] == []
     assert result["orchestration_outcome"] == "failed"

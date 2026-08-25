@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -141,3 +142,29 @@ def test_bootstrap_module_has_no_database_reset_or_destructive_sql_path():
     assert "truncate table" not in source
     assert "drop table" not in source
     assert "reindex=true" not in source
+
+
+def test_bootstrap_passes_explicit_pinecone_selection_without_fallback():
+    events = []
+    migrate, ingest, chunk, _embed = _successful_fakes(events)
+
+    def embed(*, settings, reindex):
+        events.append(("embeddings", settings.vector_store_provider, reindex))
+        return (2, 2, "pinecone:civiclens/current-corpus")
+
+    result = run_bootstrap(
+        settings=replace(
+            _settings(),
+            vector_store_provider="pinecone",
+            pinecone_api_key="secret",
+            pinecone_index_name="civiclens",
+            pinecone_index_host="civiclens.svc.pinecone.io",
+        ),
+        migration_runner=migrate,
+        ingestion_runner=ingest,
+        chunking_runner=chunk,
+        embedding_runner=embed,
+    )
+
+    assert events[-1] == ("embeddings", "pinecone", False)
+    assert result.embedding_target == "pinecone:civiclens/current-corpus"

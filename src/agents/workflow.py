@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from src.agents.nodes import (
+    RagBackendExecutionError,
     WorkflowDependencies,
     WorkflowExecutionError,
     analytics_execution_node,
+    backend_error_workflow_result,
     fallback_node,
     final_validation_node,
     input_validation_node,
@@ -87,7 +89,7 @@ def run_langgraph_workflow(
     dependencies: WorkflowDependencies | None = None,
     compiled_workflow: Any | None = None,
 ) -> dict[str, Any]:
-    """Execute the bounded graph and convert all graph failures to abstention."""
+    """Execute the bounded graph with safe fallbacks and sanitized RAG backend failures."""
 
     try:
         _, _, _, GraphRecursionError = _load_langgraph()
@@ -127,6 +129,11 @@ def run_langgraph_workflow(
             outcome="unavailable",
             step_count=0,
             tool_call_count=0,
+        )
+    except RagBackendExecutionError as exc:
+        return backend_error_workflow_result(
+            step_count=exc.step_count,
+            tool_call_count=exc.tool_call_count,
         )
     except WorkflowExecutionError as exc:
         return safe_workflow_result(

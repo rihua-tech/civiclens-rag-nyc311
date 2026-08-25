@@ -1,0 +1,2 @@
+# Optional Issue 18 Pinecone SDK. Core/pgvector installs do not require it.
+pinecone>=9,<10

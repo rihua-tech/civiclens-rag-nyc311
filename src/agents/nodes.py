@@ -28,6 +28,10 @@ GRAPH_FALLBACK_MESSAGE = (
 GRAPH_FALLBACK_CONFIDENCE = (
     "No answer was produced because bounded orchestration validation failed."
 )
+RAG_BACKEND_NOT_READY_MESSAGE = (
+    "The configured CivicLens retrieval backend is not ready. Verify PostgreSQL "
+    "and the selected dense-vector provider, then run the bootstrap command."
+)
 
 
 class WorkflowExecutionError(RuntimeError):
@@ -36,6 +40,15 @@ class WorkflowExecutionError(RuntimeError):
     def __init__(self, code: str, step_count: int, tool_call_count: int) -> None:
         super().__init__(code)
         self.code = code
+        self.step_count = step_count
+        self.tool_call_count = tool_call_count
+
+
+class RagBackendExecutionError(RuntimeError):
+    """Identify a RAG backend failure without exposing provider details."""
+
+    def __init__(self, step_count: int, tool_call_count: int) -> None:
+        super().__init__("rag_backend_failure")
         self.step_count = step_count
         self.tool_call_count = tool_call_count
 
@@ -88,6 +101,27 @@ def safe_workflow_result(
     }
 
 
+def backend_error_workflow_result(
+    *,
+    step_count: int,
+    tool_call_count: int,
+) -> dict[str, Any]:
+    """Return a sanitized RAG backend failure for interface translation."""
+
+    return {
+        "answer": RAG_BACKEND_NOT_READY_MESSAGE,
+        "sources": [],
+        "confidence_note": "Local backend unavailable.",
+        "retrieved_chunks": [],
+        "sample_rows": [],
+        "mode": "backend_error",
+        "orchestration_mode": "langgraph",
+        "orchestration_step_count": max(0, int(step_count)),
+        "orchestration_tool_call_count": max(0, int(tool_call_count)),
+        "orchestration_outcome": "failed",
+    }
+
+
 def input_validation_node(state: WorkflowState) -> dict[str, Any]:
     step_count = _next_step(state)
     normalized = normalize_question(state["question"])
@@ -122,12 +156,18 @@ def rag_execution_node(
     dependencies: WorkflowDependencies,
 ) -> dict[str, Any]:
     step_count = _next_step(state)
-    response = dependencies.rag_answerer(
-        state["question"],
-        top_k=state["top_k"],
-        settings=state["settings"],
-        query_id=state["query_id"],
-    )
+    try:
+        response = dependencies.rag_answerer(
+            state["question"],
+            top_k=state["top_k"],
+            settings=state["settings"],
+            query_id=state["query_id"],
+        )
+    except Exception as exc:
+        raise RagBackendExecutionError(
+            step_count,
+            int(state["tool_call_count"]),
+        ) from exc
     response = dict(response)
     response["mode"] = "rag"
     response.setdefault("sample_rows", [])

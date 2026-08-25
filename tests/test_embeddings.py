@@ -14,16 +14,21 @@ from src.embeddings.embed_chunks import (
     load_chunks,
     local_deterministic_embedding,
     store_chunks,
-    upsert_chunk,
-    upsert_document,
-    validate_stored_embedding_profiles,
-    vector_column_for_spec,
 )
 from src.embeddings.providers import EmbeddingCompatibilityError, EmbeddingSpec
 from src.embeddings.providers.deterministic import DeterministicEmbeddingProvider
 from src.embeddings.providers.factory import create_embedding_provider
 from src.embeddings.providers.sentence_transformers import (
     SentenceTransformersEmbeddingProvider,
+)
+from src.vectorstores.models import VectorSyncResult
+from src.vectorstores.pgvector_store import (
+    validate_stored_embedding_profiles,
+    vector_column_for_spec,
+)
+from src.vectorstores.postgres_metadata import (
+    upsert_chunk_metadata,
+    upsert_document,
 )
 
 
@@ -116,10 +121,10 @@ def test_document_upsert_preserves_manifest_and_content_metadata():
 def test_chunk_upsert_preserves_section_hash_and_count_metadata():
     cursor = RecordingCursor()
 
-    upsert_chunk(cursor, metadata_chunk(), [0.1, -0.2])
+    upsert_chunk_metadata(cursor, metadata_chunk())
 
     query, parameters = cursor.calls[0]
-    assert query.count("%s") == 23
+    assert query.count("%s") == 18
     assert "section_title" in query
     assert "heading_path" in query
     assert "word_count" in query
@@ -134,13 +139,8 @@ def test_chunk_upsert_preserves_section_hash_and_count_metadata():
         "sha256:chunking-config",
         "2026-08-17T00:00:00Z",
     )
-    assert parameters[-5:] == (
-        "deterministic",
-        DETERMINISTIC_MODEL,
-        EMBEDDING_DIMENSIONS,
-        "[0.1,-0.2]",
-        None,
-    )
+    assert "embedding_provider" not in query
+    assert "semantic_embedding" not in query
 
 
 def test_deterministic_provider_remains_available_and_stable():
@@ -250,21 +250,10 @@ def test_existing_openai_flag_maps_to_backward_compatible_provider(monkeypatch):
     assert settings.embedding_dimension == 1536
 
 
-def test_semantic_upsert_uses_only_384_dimension_vector_column():
-    cursor = RecordingCursor()
+def test_semantic_profile_selects_only_384_dimension_vector_column():
     spec = EmbeddingSpec("sentence_transformers", DEFAULT_SEMANTIC_MODEL, 384)
 
-    upsert_chunk(cursor, metadata_chunk(), [0.0] * 384, spec)
-
-    query, parameters = cursor.calls[0]
-    assert "semantic_embedding" in query
-    assert parameters[-5:-2] == (
-        "sentence_transformers",
-        DEFAULT_SEMANTIC_MODEL,
-        384,
-    )
-    assert parameters[-2] is None
-    assert str(parameters[-1]).startswith("[0,")
+    assert vector_column_for_spec(spec) == "semantic_embedding"
 
 
 class ContextCursor(RecordingCursor):
@@ -310,6 +299,31 @@ class FakeBatchSemanticProvider:
         return [[0.0] * 384 for _ in texts]
 
 
+class RecordingVectorStore:
+    provider_name = "test"
+    target = "test:vector-store"
+
+    def __init__(self, prepare_error=None):
+        self.prepare_error = prepare_error
+        self.prepare_calls = []
+        self.sync_calls = []
+
+    def prepare_sync(self, *, reindex=False):
+        self.prepare_calls.append(reindex)
+        if self.prepare_error is not None:
+            raise self.prepare_error
+
+    def sync(self, records, *, reindex=False):
+        self.sync_calls.append((list(records), reindex))
+        return VectorSyncResult("test", self.target, None, len(records), True)
+
+    def query(self, vector, *, candidate_limit, min_similarity):
+        raise AssertionError("query was not expected")
+
+    def verify(self, identities):
+        return None
+
+
 def semantic_settings() -> Settings:
     return Settings(
         database_url="postgresql://example",
@@ -323,27 +337,33 @@ def semantic_settings() -> Settings:
 
 
 def test_incompatible_database_profile_fails_before_model_embedding(monkeypatch):
-    cursor = ContextCursor({("deterministic", DETERMINISTIC_MODEL, 1536)})
+    cursor = ContextCursor([])
     monkeypatch.setitem(
         sys.modules,
         "psycopg",
         SimpleNamespace(connect=lambda _: ContextConnection(cursor)),
     )
     provider = FakeBatchSemanticProvider()
+    vector_store = RecordingVectorStore(
+        EmbeddingCompatibilityError("Stored profile is incompatible; use --reindex")
+    )
 
     with pytest.raises(EmbeddingCompatibilityError, match="--reindex"):
         store_chunks(
             [metadata_chunk()],
             semantic_settings(),
             provider=provider,
+            vector_store=vector_store,
         )
 
     assert provider.calls == []
+    executed_sql = "\n".join(str(query) for query, _ in cursor.calls).lower()
+    assert "insert into documents" in executed_sql
+    assert "insert into chunks" in executed_sql
+    assert "embedding_provider" not in executed_sql
 
 
-def test_explicit_reindex_clears_old_vectors_and_rebuilds_bounded_schema_indexes(
-    monkeypatch,
-):
+def test_explicit_reindex_is_forwarded_to_the_selected_vector_store(monkeypatch):
     cursor = ContextCursor({("deterministic", DETERMINISTIC_MODEL, 1536)})
     monkeypatch.setitem(
         sys.modules,
@@ -351,18 +371,20 @@ def test_explicit_reindex_clears_old_vectors_and_rebuilds_bounded_schema_indexes
         SimpleNamespace(connect=lambda _: ContextConnection(cursor)),
     )
     provider = FakeBatchSemanticProvider()
+    vector_store = RecordingVectorStore()
 
     stored = store_chunks(
         [metadata_chunk()],
         semantic_settings(),
         provider=provider,
         reindex=True,
+        vector_store=vector_store,
     )
 
-    executed_sql = "\n".join(str(query) for query, _ in cursor.calls).lower()
     assert stored == 1
     assert provider.calls == [["Readable local chunk."]]
-    assert "update chunks" in executed_sql
-    assert "semantic_embedding = null" in executed_sql
-    assert "reindex index idx_chunks_semantic_embedding_hnsw" in executed_sql
-    assert "reindex index idx_chunks_search_vector_gin" in executed_sql
+    assert vector_store.prepare_calls == [True]
+    records, reindex = vector_store.sync_calls[0]
+    assert reindex is True
+    assert records[0].identity.chunk_id == "doc_1_chunk_abc123"
+    assert len(records[0].values) == 384
