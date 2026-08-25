@@ -18,6 +18,7 @@ The project is designed to show how an operational data platform can pair docume
 - Issue 11 keeps local answers as the default and isolates one opt-in OpenAI answer provider behind grounded structured output and application-controlled citation validation.
 - Issue 13 adds opt-in privacy-conscious execution metadata, stable `query_id` tracing, feedback, and ordered SQL migrations without storing raw questions or answers.
 - Issue 16 exposes the four predefined sample analytics capabilities through strict typed, allowlisted, read-only tools with fixed IDs, bounded results, and source provenance.
+- Issue 17 keeps direct orchestration as the default and adds one optional bounded LangGraph workflow that reuses the same deterministic route decision, RAG pipeline, and safe tool registry.
 - A dated Render deployment proves the Streamlit -> FastAPI -> PostgreSQL/pgvector path with deterministic embeddings, a cited answer, and safe abstention.
 - GitHub Actions runs offline-safe pytest and compileall checks.
 - Local Docker Compose and a non-production Render portfolio demo are available; there is no production deployment, live NYC 311 data, default OpenAI usage, or production text-to-SQL claim.
@@ -54,8 +55,13 @@ flowchart TD
     question --> ui["Cited Streamlit UI"]
     ui --> api["FastAPI<br/>/api/v1/answer"]
     api --> orchestrator["Shared question orchestration"]
-    orchestrator --> semantic
-    orchestrator --> analyticsRouter["Predefined analytics router"]
+    orchestrator --> mode["direct default<br/>or LangGraph opt-in"]
+    mode --> direct["Direct execution"]
+    mode --> graph["Bounded graph<br/>validate -> route -> execute -> validate -> respond"]
+    direct --> routeDecision["Shared deterministic route decision"]
+    graph --> routeDecision
+    routeDecision --> semantic
+    routeDecision --> analyticsRouter["Predefined analytics router"]
     analyticsRouter --> analyticsRegistry["Fixed typed tool registry"]
     sampleAnalytics --> analyticsRegistry
     analyticsRegistry --> analyticsAnswer["Bounded analytics result"]
@@ -106,6 +112,12 @@ CivicLens now uses two deliberately distinct hybrid patterns:
 At the application level, "Hybrid RAG" means document RAG plus predefined analytics routing. Inside the document RAG branch, Issue 9 "hybrid retrieval" specifically means dense semantic retrieval combined with PostgreSQL lexical retrieval.
 
 This keeps the local demo predictable and offline-friendly while still showing how RAG and analytics can work together in an operations copilot.
+
+## Optional Bounded LangGraph Orchestration
+
+`ORCHESTRATION_MODE=direct` is the default and reference behavior. It has no LangGraph dependency. Install the optional dependency with `python -m pip install -r requirements-langgraph.txt` and set `ORCHESTRATION_MODE=langgraph` to execute the same deterministic route decision through a small acyclic graph: input validation, route decision, one RAG or analytics execution, final validation, and response generation.
+
+The graph reuses Issue 9 retrieval, Issue 11 grounded generation/citation validation, and the Issue 16 fixed Tool Registry. `LANGGRAPH_MAX_STEPS` is bounded from 5 through 32 (default 8), while `LANGGRAPH_TOOL_CALL_LIMIT` is fixed at 1. An unsupported route, unavailable optional dependency, invalid result, tool-validation failure, or exceeded limit produces a controlled abstention/fallback. This is not an autonomous agent: it has no LLM router, planner, tool loop, arbitrary tool execution, memory, or hidden reasoning trace. The existing `POST /api/v1/answer` contract remains unchanged.
 
 ## Answer Providers, Grounding, and Citations
 
@@ -208,7 +220,7 @@ The host-local Streamlit default is `CIVICLENS_API_BASE_URL=http://localhost:800
 
 The documented offline evaluation command uses deterministic in-memory retrieval and needs no database, paid API, API key, network, or model download. The separate `--profile real` comparison requires cached local models and a prepared database.
 
-Issue 13 database changes remain ordered files under `sql/migrations/`. Bootstrap runs their checksum-tracked migration runner on every supported fresh or upgraded database, rather than relying only on PostgreSQL's first-volume initialization directory. `0001` establishes the Issues 8/9 baseline; `0002` upgrades existing logging tables in place and adds feedback. Existing local databases do not need to be deleted or recreated.
+Database changes remain ordered files under `sql/migrations/`. Bootstrap runs their checksum-tracked migration runner on every supported fresh or upgraded database, rather than relying only on PostgreSQL's first-volume initialization directory. `0001` establishes the Issues 8/9 baseline; `0002` upgrades existing logging tables in place and adds feedback; forward-only `0003` adds the Issue 17 orchestration metadata fields. Existing local databases do not need to be deleted or recreated.
 
 ### Local FastAPI
 
@@ -287,7 +299,7 @@ These screenshots are captured from a local Streamlit run.
 ## Limitations
 
 - Local Docker Compose and a time-limited Render portfolio demo are validated; there is no production deployment or availability commitment.
-- No orchestration platform, authentication, streaming, rate limiting, or production SLA.
+- The optional bounded LangGraph workflow is not an orchestration platform or autonomous agent; there is no authentication, streaming, rate limiting, or production SLA.
 - Not connected to live NYC 311 data.
 - No default OpenAI calls.
 - The opt-in OpenAI answer provider has been manually live-verified with grounded-answer, citation-validation, abstention, and adversarial-input smoke tests; automated tests and CI remain mock/offline-only.
@@ -300,7 +312,6 @@ These screenshots are captured from a local Streamlit run.
 
 ## Future Work
 
-- Add a bounded LangGraph workflow over the existing safe typed tools.
 - Optionally demonstrate vector-store and RAG-framework portability.
 
 ## Tech Stack
@@ -308,6 +319,7 @@ These screenshots are captured from a local Streamlit run.
 - Python
 - Streamlit
 - FastAPI and Uvicorn
+- Optional LangGraph, disabled by default
 - PostgreSQL
 - pgvector
 - PostgreSQL full-text search
@@ -353,6 +365,7 @@ civiclens-rag-nyc311/
 |   |-- sample_queries.sql
 |   `-- schema.sql
 |-- src/
+|   |-- agents/
 |   |-- analytics/
 |   |   `-- tools/
 |   |-- chunking/

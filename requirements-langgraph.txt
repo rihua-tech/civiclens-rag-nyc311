@@ -1,0 +1,2 @@
+# Optional Issue 17 orchestration dependency. Core/direct installs do not require it.
+langgraph>=1.2,<1.3

@@ -53,6 +53,10 @@ class PostgresQueryLogger:
                         question,
                         question_length,
                         route,
+                        orchestration_mode,
+                        orchestration_step_count,
+                        orchestration_tool_call_count,
+                        orchestration_outcome,
                         retrieval_strategy,
                         embedding_provider,
                         embedding_model,
@@ -67,13 +71,17 @@ class PostgresQueryLogger:
                     )
                     VALUES (
                         %s, NULL, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
                     (
                         observation.query_id,
                         observation.question_length,
                         observation.route,
+                        observation.orchestration_mode,
+                        observation.orchestration_step_count,
+                        observation.orchestration_tool_call_count,
+                        observation.orchestration_outcome,
                         observation.retrieval_strategy,
                         observation.embedding_provider,
                         observation.embedding_model,
@@ -192,6 +200,18 @@ def build_query_observation(
         query_id=query_id,
         created_at=created_at,
         route=route,
+        orchestration_mode=str(result.get("orchestration_mode") or "direct"),
+        orchestration_step_count=max(
+            0,
+            int(result.get("orchestration_step_count") or 0),
+        ),
+        orchestration_tool_call_count=max(
+            0,
+            int(result.get("orchestration_tool_call_count") or 0),
+        ),
+        orchestration_outcome=str(
+            result.get("orchestration_outcome") or answer_status
+        ),
         retrieval_strategy=settings.retrieval_mode if is_rag else None,
         embedding_provider=settings.embedding_provider if is_rag else None,
         embedding_model=settings.embedding_model if is_rag else None,

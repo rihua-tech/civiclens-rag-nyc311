@@ -23,6 +23,11 @@ DEFAULT_ANSWER_TIMEOUT_SECONDS = 30.0
 DEFAULT_ANSWER_MAX_RETRIES = 2
 MAX_ANSWER_RETRIES = 5
 DEFAULT_OBSERVABILITY_CONNECT_TIMEOUT_SECONDS = 3
+DIRECT_ORCHESTRATION_MODE = "direct"
+LANGGRAPH_ORCHESTRATION_MODE = "langgraph"
+DEFAULT_LANGGRAPH_MAX_STEPS = 8
+MAX_LANGGRAPH_MAX_STEPS = 32
+LANGGRAPH_TOOL_CALL_LIMIT = 1
 
 
 def load_dotenv_if_available() -> None:
@@ -80,6 +85,13 @@ def env_bounded_retry_count(name: str, default: int) -> int:
     return value
 
 
+def env_bounded_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    value = env_int(name, default)
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
 def build_database_url() -> str:
     user = os.getenv("POSTGRES_USER", "civiclens")
     password = os.getenv("POSTGRES_PASSWORD", "change_me")
@@ -125,6 +137,9 @@ class Settings:
     observability_connect_timeout_seconds: int = (
         DEFAULT_OBSERVABILITY_CONNECT_TIMEOUT_SECONDS
     )
+    orchestration_mode: str = DIRECT_ORCHESTRATION_MODE
+    langgraph_max_steps: int = DEFAULT_LANGGRAPH_MAX_STEPS
+    langgraph_tool_call_limit: int = LANGGRAPH_TOOL_CALL_LIMIT
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -172,6 +187,24 @@ class Settings:
             if legacy_use_openai_answers
             else configured_answer_provider or LOCAL_ANSWER_PROVIDER
         )
+        orchestration_mode = os.getenv(
+            "ORCHESTRATION_MODE",
+            DIRECT_ORCHESTRATION_MODE,
+        ).strip().lower()
+        if orchestration_mode not in {
+            DIRECT_ORCHESTRATION_MODE,
+            LANGGRAPH_ORCHESTRATION_MODE,
+        }:
+            raise ValueError(
+                "ORCHESTRATION_MODE must be either "
+                f"{DIRECT_ORCHESTRATION_MODE!r} or {LANGGRAPH_ORCHESTRATION_MODE!r}"
+            )
+        tool_call_limit = env_int(
+            "LANGGRAPH_TOOL_CALL_LIMIT",
+            LANGGRAPH_TOOL_CALL_LIMIT,
+        )
+        if tool_call_limit != LANGGRAPH_TOOL_CALL_LIMIT:
+            raise ValueError("LANGGRAPH_TOOL_CALL_LIMIT must be exactly 1")
 
         return cls(
             database_url=os.getenv("DATABASE_URL") or build_database_url(),
@@ -209,6 +242,14 @@ class Settings:
                 "OBSERVABILITY_CONNECT_TIMEOUT_SECONDS",
                 DEFAULT_OBSERVABILITY_CONNECT_TIMEOUT_SECONDS,
             ),
+            orchestration_mode=orchestration_mode,
+            langgraph_max_steps=env_bounded_int(
+                "LANGGRAPH_MAX_STEPS",
+                DEFAULT_LANGGRAPH_MAX_STEPS,
+                minimum=5,
+                maximum=MAX_LANGGRAPH_MAX_STEPS,
+            ),
+            langgraph_tool_call_limit=tool_call_limit,
         )
 
     @property

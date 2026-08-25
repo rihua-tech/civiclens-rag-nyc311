@@ -13,9 +13,7 @@ from src.observability.feedback import (
     normalize_feedback_comment,
 )
 from src.observability.models import FeedbackRating
-
-
-MAX_QUESTION_LENGTH = 2000
+from src.orchestration.route_decision import MAX_QUESTION_LENGTH
 
 
 class AnswerRequest(BaseModel):
