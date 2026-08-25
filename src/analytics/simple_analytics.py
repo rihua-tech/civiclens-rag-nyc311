@@ -15,6 +15,13 @@ from src.analytics.tools import (
     execute_analytics_tool,
 )
 from src.analytics.tools.definitions import load_sample_output as _load_sample_output
+from src.orchestration.route_decision import (
+    QuestionRoute,
+    RouteDecision,
+    decide_question_route,
+    looks_like_analytics_question as looks_like_analytics_question,
+    looks_like_field_definition_question as looks_like_field_definition_question,
+)
 
 
 ANALYTICS_FALLBACK = (
@@ -22,28 +29,6 @@ ANALYTICS_FALLBACK = (
     "Try asking about top complaint types, borough complaint volume, agency request volume, "
     "or the backlog summary."
 )
-ANALYTICS_CUES = (
-    "top complaint",
-    "complaint type",
-    "complaint volume",
-    "borough",
-    "agency request",
-    "agencies handle",
-    "request volume",
-    "requests by",
-    "backlog",
-    "overdue",
-)
-FIELD_DEFINITION_CUES = (
-    "what does",
-    "what do",
-    "mean",
-    "means",
-    "definition",
-    "define",
-)
-
-
 def load_sample_output(file_name: str) -> list[dict[str, str]]:
     """Compatibility loader restricted to the four allowlisted sample files."""
 
@@ -78,6 +63,15 @@ def tool_result_to_analytics_response(result: AnalyticsToolResult) -> dict[str, 
     }
 
 
+def execute_analytics_decision(decision: RouteDecision) -> dict[str, Any]:
+    """Execute exactly one tool selected by the shared deterministic router."""
+
+    if decision.route is not QuestionRoute.ANALYTICS or decision.tool_id is None:
+        raise ValueError("A registered analytics route is required.")
+    result = execute_analytics_tool(decision.tool_id, decision.tool_arguments)
+    return tool_result_to_analytics_response(result)
+
+
 def top_complaint_types_answer() -> dict[str, Any]:
     result = execute_analytics_tool(
         AnalyticsToolId.TOP_COMPLAINT_TYPES,
@@ -108,45 +102,17 @@ def backlog_summary_answer() -> dict[str, Any]:
 
 
 def answer_analytics_question(question: str) -> dict[str, Any]:
-    normalized = " ".join(question.lower().split())
-
-    if not normalized:
+    try:
+        decision = decide_question_route(question)
+    except ValueError:
         return fallback_response()
-    if looks_like_field_definition_question(normalized):
-        return fallback_response()
-    if "complaint" in normalized and ("top" in normalized or "type" in normalized):
-        return top_complaint_types_answer()
-    if "borough" in normalized and (
-        "highest" in normalized
-        or "volume" in normalized
-        or "most" in normalized
-        or "requests" in normalized
-        or "complaint" in normalized
-    ):
-        return borough_volume_answer()
-    if "agenc" in normalized and (
-        "most" in normalized or "volume" in normalized or "requests" in normalized
-    ):
-        return agency_volume_answer()
-    if "backlog" in normalized or "overdue" in normalized:
-        return backlog_summary_answer()
-
+    if decision.route is QuestionRoute.ANALYTICS:
+        return execute_analytics_decision(decision)
     return fallback_response()
 
 
 def is_analytics_question(question: str) -> bool:
     return answer_analytics_question(question)["mode"] == "analytics"
-
-
-def looks_like_analytics_question(question: str) -> bool:
-    normalized = " ".join(question.lower().split())
-    if looks_like_field_definition_question(normalized):
-        return False
-    return any(cue in normalized for cue in ANALYTICS_CUES)
-
-
-def looks_like_field_definition_question(normalized_question: str) -> bool:
-    return any(cue in normalized_question for cue in FIELD_DEFINITION_CUES)
 
 
 def fallback_response() -> dict[str, Any]:

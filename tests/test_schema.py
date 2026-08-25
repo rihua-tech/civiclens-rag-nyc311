@@ -143,6 +143,25 @@ def test_schema_contains_issue_8_document_and_chunk_metadata_columns():
     assert "token_count integer" not in schema_sql
 
 
+def test_fresh_schema_and_issue_17_migration_share_orchestration_metadata():
+    schema_sql = _normalized_sql("sql/schema.sql")
+    migration_sql = _normalized_sql(
+        "sql/migrations/0003_bounded_orchestration_metadata.sql"
+    )
+
+    fields = (
+        "orchestration_mode text",
+        "orchestration_step_count integer",
+        "orchestration_tool_call_count integer",
+        "orchestration_outcome text",
+    )
+    for field in fields:
+        assert field in schema_sql
+        assert f"alter table queries add column if not exists {field}" in migration_sql
+    assert "drop table" not in migration_sql
+    assert "truncate " not in migration_sql
+
+
 def test_schema_has_narrow_idempotent_issue_8_upgrade_statements():
     schema_sql = Path("sql/schema.sql").read_text(encoding="utf-8").lower()
 

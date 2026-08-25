@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Any
 
 
-OBSERVABILITY_SCHEMA_VERSION = "issue13-v1"
+OBSERVABILITY_SCHEMA_VERSION = "issue17-v2"
 
 
 class FeedbackRating(str, Enum):
@@ -136,6 +136,10 @@ class QueryObservation:
     query_id: str
     created_at: datetime
     route: str
+    orchestration_mode: str
+    orchestration_step_count: int
+    orchestration_tool_call_count: int
+    orchestration_outcome: str
     retrieval_strategy: str | None
     embedding_provider: str | None
     embedding_model: str | None

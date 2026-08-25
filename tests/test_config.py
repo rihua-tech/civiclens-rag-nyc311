@@ -1,3 +1,5 @@
+import pytest
+
 from src.common import config
 
 
@@ -21,6 +23,9 @@ CONFIG_ENV_VARS = (
     "OPENAI_API_KEY",
     "OBSERVABILITY_ENABLED",
     "OBSERVABILITY_CONNECT_TIMEOUT_SECONDS",
+    "ORCHESTRATION_MODE",
+    "LANGGRAPH_MAX_STEPS",
+    "LANGGRAPH_TOOL_CALL_LIMIT",
 )
 
 
@@ -46,6 +51,9 @@ def test_normal_local_defaults_select_one_real_semantic_hybrid_profile(monkeypat
     assert settings.answer_max_retries == 2
     assert settings.observability_enabled is False
     assert settings.observability_connect_timeout_seconds == 3
+    assert settings.orchestration_mode == "direct"
+    assert settings.langgraph_max_steps == 8
+    assert settings.langgraph_tool_call_limit == 1
 
 
 def test_observability_configuration_is_explicit(monkeypatch):
@@ -57,6 +65,37 @@ def test_observability_configuration_is_explicit(monkeypatch):
 
     assert settings.observability_enabled is True
     assert settings.observability_connect_timeout_seconds == 7
+
+
+def test_langgraph_configuration_is_explicit_and_bounded(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.setenv("ORCHESTRATION_MODE", "langgraph")
+    monkeypatch.setenv("LANGGRAPH_MAX_STEPS", "12")
+    monkeypatch.setenv("LANGGRAPH_TOOL_CALL_LIMIT", "1")
+
+    settings = config.Settings.from_env()
+
+    assert settings.orchestration_mode == "langgraph"
+    assert settings.langgraph_max_steps == 12
+    assert settings.langgraph_tool_call_limit == 1
+
+
+def test_invalid_or_unbounded_orchestration_configuration_is_rejected(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+
+    monkeypatch.setenv("ORCHESTRATION_MODE", "autonomous")
+    with pytest.raises(ValueError, match="ORCHESTRATION_MODE"):
+        config.Settings.from_env()
+
+    monkeypatch.setenv("ORCHESTRATION_MODE", "langgraph")
+    monkeypatch.setenv("LANGGRAPH_MAX_STEPS", "33")
+    with pytest.raises(ValueError, match="LANGGRAPH_MAX_STEPS"):
+        config.Settings.from_env()
+
+    monkeypatch.setenv("LANGGRAPH_MAX_STEPS", "8")
+    monkeypatch.setenv("LANGGRAPH_TOOL_CALL_LIMIT", "2")
+    with pytest.raises(ValueError, match="exactly 1"):
+        config.Settings.from_env()
 
 
 def test_legacy_deterministic_environment_remains_backward_compatible(monkeypatch):

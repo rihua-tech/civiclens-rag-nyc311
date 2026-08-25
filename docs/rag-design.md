@@ -164,18 +164,24 @@ The default semantic minimum similarity is 0.25. PostgreSQL lexical candidates c
 
 ## FastAPI and Shared Question Orchestration
 
-Streamlit calls the versioned FastAPI backend through its public `POST /api/v1/answer` contract. FastAPI then calls the same reusable Python question orchestrator used by non-HTTP callers and tests. The orchestrator preserves the existing decision boundary: supported analytics questions use predefined checked-in CSV outputs, analytics-looking questions without a predefined route safely decline, and documentation questions reuse Issue 9 retrieval plus Issue 11 grounded generation and citation validation.
+Streamlit calls the versioned FastAPI backend through its public `POST /api/v1/answer` contract. FastAPI then calls the same reusable Python question orchestrator used by non-HTTP callers and tests. Direct execution is the default; an optional bounded LangGraph mode uses the same deterministic route-decision helper. Both preserve the existing decision boundary: supported analytics questions use predefined checked-in CSV outputs, analytics-looking questions without a predefined route safely decline, and documentation questions reuse Issue 9 retrieval plus Issue 11 grounded generation and citation validation.
 
 FastAPI remains a thin adapter. It validates the public request, calls orchestration, and serializes a provider-neutral response. It does not own analytics routing, retrieval, provider selection, grounding, citation validation, observability persistence, or feedback validation. Public responses omit raw chunks, provider payloads, environment/database configuration, and local exception details; Streamlit now renders this same allow-listed response rather than bypassing HTTP for internal retrieval diagnostics. When observability is enabled, the answer response adds the stable orchestration-owned `query_id` needed for feedback.
 
 ```text
 Question -> Streamlit -> FastAPI /api/v1/answer -> shared orchestrator
-                                                    |-> analytics route -> application result
+                                                    |-> direct (default)
+                                                    \-> bounded LangGraph (opt-in)
+                                                          |
+                                             shared deterministic route decision
+                                                    |-> one analytics tool -> application result
                                                     \-> RAG retrieval -> grounded generation -> application result
 
 Application result -> allow-listed FastAPI response -> Streamlit
                    \-> allow-listed query/retrieval metadata (optional)
 ```
+
+The optional graph is acyclic: input validation -> route decision -> one RAG or analytics execution -> final validation -> response generation. It applies a bounded step/recursion limit and a fixed one-tool-call maximum. The analytics node resolves only the Issue 16 Tool Registry; the RAG node calls the existing retrieval/generation path. There is no LLM router, planner, repeated tool loop, arbitrary tool execution, checkpointed memory, or hidden reasoning state. Missing LangGraph, invalid routes/results, registry failures, and exceeded limits produce controlled abstention/fallback results without changing the HTTP contract.
 
 `GET /health` is dependency-free liveness. `GET /ready` performs a bounded, read-only check for loadable configuration, reachable PostgreSQL, required RAG tables, exact current manifest document/chunk identities and hashes, and embeddings matching the configured provider/model/dimension. Neither endpoint calls OpenAI, loads models, performs retrieval/generation, or mutates the database.
 
@@ -222,6 +228,8 @@ Issue 13 adds `OBSERVABILITY_ENABLED` and `OBSERVABILITY_CONNECT_TIMEOUT_SECONDS
 
 Issue 14 adds `CIVICLENS_API_BASE_URL` and `CIVICLENS_API_TIMEOUT_SECONDS` for the Streamlit HTTP boundary. Docker service names are runtime networking details only; host-local application and test workflows remain supported.
 
+Issue 17 adds `ORCHESTRATION_MODE`, `LANGGRAPH_MAX_STEPS`, and `LANGGRAPH_TOOL_CALL_LIMIT`. `direct` is the default and works without the optional dependency. `langgraph` requires `requirements-langgraph.txt`; the maximum tool calls remains exactly one.
+
 ## Answer and Analytics Boundaries
 
 Issue 11 does not change Issue 9 retrieval. Documentation questions still use its final retrieved chunks; predefined analytics remains a separate deterministic route.
@@ -240,4 +248,4 @@ An optional `--answer-profile openai` path reuses the same real-retrieval evalua
 
 Disposable Markdown/JSON runs belong under ignored `data/evaluation/results/`; only the explicitly reviewed `docs/evaluation-report.md` is the version-controlled baseline. Dataset design, formulas, commands, and limitations are documented in `docs/evaluation-notes.md`.
 
-Live OpenAI evaluation, hosted observability, distributed tracing, cloud deployment, tool registries, LangGraph, Pinecone, LangChain, and LlamaIndex remain outside automated verification. The local Docker Compose deployment and versioned HTTP adapter do not add production API concerns such as authentication, streaming, rate limiting, or monitoring.
+Live OpenAI evaluation, hosted observability, distributed tracing, Pinecone, LangChain, and LlamaIndex remain outside automated verification. Issue 16 tool-registry and Issue 17 bounded-LangGraph behavior are verified with offline-safe tests; the optional graph does not add an autonomous agent. The local Docker Compose deployment and versioned HTTP adapter do not add production API concerns such as authentication, streaming, rate limiting, or monitoring.

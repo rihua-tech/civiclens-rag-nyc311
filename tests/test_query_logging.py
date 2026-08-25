@@ -102,6 +102,10 @@ def test_one_query_id_traces_route_generation_and_retrieval(monkeypatch):
     assert observation.latency_ms == 125.0
     assert observation.route == "rag"
     assert observation.retrieval_strategy == "hybrid"
+    assert observation.orchestration_mode == "direct"
+    assert observation.orchestration_step_count == 2
+    assert observation.orchestration_tool_call_count == 0
+    assert observation.orchestration_outcome == "answered"
 
 
 def test_observability_disabled_writes_nothing():
@@ -146,6 +150,8 @@ def test_successful_analytics_observation_is_recorded_as_answered():
     assert logger.observations[0].route == "analytics"
     assert logger.observations[0].answer_status == "answered"
     assert logger.observations[0].retrieval_results == ()
+    assert logger.observations[0].orchestration_mode == "direct"
+    assert logger.observations[0].orchestration_tool_call_count == 1
 
 
 class FakeCursor:
@@ -224,4 +230,5 @@ def test_postgres_logger_persists_only_allow_listed_parameterized_metadata():
     assert "chunk_abc" in persisted
     assert "docs/knowledge/field-guide.md" in persisted
     assert query_parameters[0] == QUERY_ID
+    assert query_parameters[3:7] == ("direct", 0, 0, "answered")
     assert retrieval_parameters[1] == QUERY_ID

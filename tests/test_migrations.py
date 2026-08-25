@@ -132,13 +132,19 @@ def test_changed_applied_migration_is_rejected(tmp_path):
 
 
 def test_checked_in_migrations_baseline_and_upgrade_existing_tables():
+    migrations = discover_migrations(Path("sql/migrations"))
     baseline = Path("sql/migrations/0001_issues_8_9_baseline.sql").read_text(
         encoding="utf-8"
     ).lower()
     upgrade = Path("sql/migrations/0002_observability_and_feedback.sql").read_text(
         encoding="utf-8"
     ).lower()
+    orchestration = Path(
+        "sql/migrations/0003_bounded_orchestration_metadata.sql"
+    ).read_text(encoding="utf-8").lower()
 
+    assert [migration.version for migration in migrations] == ["0001", "0002", "0003"]
+    assert migrations[-1].name == "bounded_orchestration_metadata"
     assert "create table if not exists documents" in baseline
     assert "create table if not exists chunks" in baseline
     assert "create table if not exists queries" in baseline
@@ -149,6 +155,15 @@ def test_checked_in_migrations_baseline_and_upgrade_existing_tables():
     assert "create table if not exists feedback" in upgrade
     assert "create table if not exists query_events" not in upgrade
     assert "create table if not exists retrieval_events" not in upgrade
+    for field in (
+        "orchestration_mode text",
+        "orchestration_step_count integer",
+        "orchestration_tool_call_count integer",
+        "orchestration_outcome text",
+    ):
+        assert f"alter table queries add column if not exists {field}" in orchestration
+    assert "drop table" not in orchestration
+    assert "truncate " not in orchestration
 
 
 def test_fresh_schema_and_runner_share_migration_tracking_contract():

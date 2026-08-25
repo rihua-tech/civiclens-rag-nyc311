@@ -19,6 +19,7 @@ jobs:
       ANSWER_PROVIDER: "local"
       USE_OPENAI_ANSWERS: "false"
       OBSERVABILITY_ENABLED: "false"
+      ORCHESTRATION_MODE: "direct"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
 
@@ -41,3 +42,41 @@ jobs:
 
       - name: Compile Python files
         run: python -m compileall api app src scripts tests
+
+  bounded-langgraph:
+    runs-on: ubuntu-latest
+    env:
+      EMBEDDING_PROVIDER: "deterministic"
+      EMBEDDING_MODEL: "local-deterministic-1536"
+      EMBEDDING_DIMENSION: "1536"
+      RETRIEVAL_MODE: "semantic"
+      RERANKING_ENABLED: "false"
+      USE_OPENAI_EMBEDDINGS: "false"
+      ANSWER_PROVIDER: "local"
+      USE_OPENAI_ANSWERS: "false"
+      OBSERVABILITY_ENABLED: "false"
+      ORCHESTRATION_MODE: "langgraph"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install core and optional LangGraph dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-langgraph.txt
+
+      - name: Run bounded LangGraph tests
+        run: >-
+          python -m pytest -q
+          tests/test_agent_workflow.py
+          tests/test_agent_routing.py
+          tests/test_agent_safety.py
+          tests/test_agent_api.py

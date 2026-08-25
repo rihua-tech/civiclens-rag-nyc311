@@ -88,6 +88,10 @@ CREATE TABLE IF NOT EXISTS queries (
     question TEXT,
     question_length INTEGER,
     route TEXT,
+    orchestration_mode TEXT,
+    orchestration_step_count INTEGER,
+    orchestration_tool_call_count INTEGER,
+    orchestration_outcome TEXT,
     retrieval_strategy TEXT,
     embedding_provider TEXT,
     embedding_model TEXT,
@@ -148,6 +152,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ALTER TABLE queries ALTER COLUMN question DROP NOT NULL;
 ALTER TABLE queries ADD COLUMN IF NOT EXISTS question_length INTEGER;
 ALTER TABLE queries ADD COLUMN IF NOT EXISTS route TEXT;
+ALTER TABLE queries ADD COLUMN IF NOT EXISTS orchestration_mode TEXT;
+ALTER TABLE queries ADD COLUMN IF NOT EXISTS orchestration_step_count INTEGER;
+ALTER TABLE queries ADD COLUMN IF NOT EXISTS orchestration_tool_call_count INTEGER;
+ALTER TABLE queries ADD COLUMN IF NOT EXISTS orchestration_outcome TEXT;
 ALTER TABLE queries ADD COLUMN IF NOT EXISTS retrieval_strategy TEXT;
 ALTER TABLE queries ADD COLUMN IF NOT EXISTS embedding_provider TEXT;
 ALTER TABLE queries ADD COLUMN IF NOT EXISTS embedding_model TEXT;

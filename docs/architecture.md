@@ -25,8 +25,13 @@ flowchart TD
     question --> ui["Streamlit UI<br/>container or host"]
     ui --> api["FastAPI<br/>/api/v1/answer"]
     api --> orchestrator["Shared question orchestration"]
-    orchestrator --> dense
-    orchestrator --> analyticsRouter["Predefined analytics router"]
+    orchestrator --> mode["direct default<br/>or LangGraph opt-in"]
+    mode --> direct["Direct execution"]
+    mode --> graph["Bounded graph<br/>validate -> route -> execute -> validate -> respond"]
+    direct --> routeDecision["Shared deterministic route decision"]
+    graph --> routeDecision
+    routeDecision --> dense
+    routeDecision --> analyticsRouter["Predefined analytics router"]
     analyticsRouter --> analyticsRegistry["Fixed typed tool registry"]
     samples --> analyticsRegistry
     analyticsRegistry --> analyticsAnswer["Bounded analytics result"]
@@ -61,6 +66,12 @@ The current CSV files contain no source timestamp, so the optional provenance
 timestamp remains unset rather than being invented. A compatibility adapter
 preserves the existing FastAPI, Streamlit, observability, and evaluation result
 contract. CivicLens does not implement unrestricted production text-to-SQL.
+
+## Direct and Bounded LangGraph Orchestration
+
+Direct execution remains the default, dependency-free reference path. The optional LangGraph mode uses the same deterministic route-decision helper, so it cannot select a different RAG or analytics capability. Its acyclic graph validates input, decides the route, executes exactly one existing RAG branch or one registered analytics tool, validates the result, and produces the existing application response. The public FastAPI contract is unchanged.
+
+Execution has both a configurable bounded step/recursion limit and a fixed maximum of one analytics-tool call. There is no planner, multi-tool loop, LLM router, checkpointer, conversational memory, arbitrary tool resolver, or hidden reasoning state. Missing optional dependencies, invalid routes/results, registry validation failures, and exceeded limits return controlled abstention/fallback results. Valid RAG citations and analytics provenance pass through unchanged.
 
 ## Design Principle
 
@@ -99,6 +110,6 @@ production authentication, backups, an SLA, or a production NYC service.
 
 Shared orchestration, not FastAPI, creates one `query_id` when `OBSERVABILITY_ENABLED=true`. The same ID is returned with the answer, stored on the existing `queries` row, attached to allow-listed `retrieval_results` rows, and required by feedback. PostgreSQL writes are parameterized and logging failures are isolated from otherwise successful answers. The feedback route delegates query validation and persistence to the observability service.
 
-Only execution metadata, existing retrieval scores/ranks, stable source references, and bounded feedback are stored. Raw question and answer text, retrieved chunk text, vectors, secrets, authorization data, environment configuration, hidden reasoning, and provider payloads are excluded. Ordered checksummed SQL files migrate existing tables without an ORM or database reset.
+Only execution metadata, existing retrieval scores/ranks, stable source references, and bounded feedback are stored. Issue 17 adds allow-listed orchestration mode, step count, tool-call count, and outcome fields; it does not persist graph state or planning traces. Raw question and answer text, retrieved chunk text, vectors, secrets, authorization data, environment configuration, hidden reasoning, and provider payloads are excluded. Ordered checksummed SQL files migrate existing tables without an ORM or database reset.
 
-This local-first architecture includes both Docker Compose and one non-production Render portfolio deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, production cloud operations, streaming, rate limiting, and monitoring remain out of the demonstrated scope.
+This local-first architecture includes both Docker Compose and one non-production Render portfolio deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. The optional bounded graph is not an unrestricted autonomous agent. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, production cloud operations, streaming, rate limiting, and monitoring remain out of the demonstrated scope.
