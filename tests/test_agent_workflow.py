@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("langgraph")
 
-from src.agents.nodes import WorkflowDependencies
+from src.agents.nodes import RAG_BACKEND_NOT_READY_MESSAGE, WorkflowDependencies
 from src.agents.workflow import run_langgraph_workflow
 from src.analytics.simple_analytics import execute_analytics_decision
 from src.common.config import Settings
@@ -85,6 +85,31 @@ def test_langgraph_rag_reuses_existing_pipeline_and_preserves_citations():
     assert result["orchestration_step_count"] == 5
     assert result["orchestration_tool_call_count"] == 0
     assert result["orchestration_outcome"] == "answered"
+
+
+def test_langgraph_rag_backend_failure_has_sanitized_backend_error_semantics():
+    secret = "pcsk_provider-secret@index.internal"
+
+    def unavailable_rag(*args, **kwargs):
+        raise RuntimeError(secret)
+
+    result = run_langgraph_workflow(
+        "What does complaint_type mean?",
+        top_k=5,
+        settings=_settings(),
+        query_id=None,
+        dependencies=_dependencies(rag_answerer=unavailable_rag),
+    )
+
+    assert result["mode"] == "backend_error"
+    assert result["answer"] == RAG_BACKEND_NOT_READY_MESSAGE
+    assert result["sources"] == []
+    assert result["orchestration_mode"] == "langgraph"
+    assert result["orchestration_step_count"] == 3
+    assert result["orchestration_tool_call_count"] == 0
+    assert result["orchestration_outcome"] == "failed"
+    assert result.get("answer_status") != "abstained"
+    assert secret not in repr(result)
 
 
 def test_minimum_five_step_limit_completes_normal_workflow():

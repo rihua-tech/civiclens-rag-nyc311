@@ -103,7 +103,7 @@ Use this procedure when first moving an Issue 8 database to semantic mode or whe
    python -m src.embeddings.embed_chunks --reindex
    ```
 
-   The command applies `sql/schema.sql`, clears all old vector values and profile metadata, embeds every current chunk with one active provider, and rebuilds the semantic HNSW and lexical GIN indexes. Without `--reindex`, incompatible stored profiles fail with a clear error.
+   With the default pgvector provider, the command applies `sql/schema.sql`, clears old pgvector values/profile metadata, embeds every current chunk with one active profile, and rebuilds the semantic HNSW and lexical GIN indexes. Pinecone uses a deterministic corpus namespace and never performs index lifecycle management. Without `--reindex`, incompatible pgvector profiles fail with a clear error.
 5. Verify the printed provider, model, dimension, chunk counts, and safe database target. Then run representative semantic, lexical/hybrid, and optional reranking queries. PostgreSQL can also verify the stored profile:
 
    ```sql
@@ -115,9 +115,24 @@ Use this procedure when first moving an Issue 8 database to semantic mode or whe
 
 The schema changes above are specific to Issue 9 retrieval. Existing databases now use the ordered Issue 13 migration command, `python -m src.observability.migrations`, before re-embedding when an unapplied schema version exists.
 
-## PostgreSQL Semantic and Lexical Retrieval
+## Dense-Vector Providers and PostgreSQL Authority
 
-PostgreSQL + pgvector remains the primary vector store. Semantic queries use cosine distance against the column selected by the active provider profile. They keep the Issue 8 current-chunk filters: chunk content hash must exist, document content hash must match the current document, and chunking configuration hash must match.
+`VECTOR_STORE_PROVIDER=pgvector` remains the default. Semantic queries use cosine distance against the column selected by the active embedding profile. The default application path uses the same small vector-store contract as the optional provider; it is not a parallel unused abstraction.
+
+PostgreSQL always persists authoritative document/chunk metadata, chunk text, provenance, corpus hashes, and lexical indexes before dense-vector synchronization. The dense-vector contract owns only stable-ID vector synchronization, semantic queries, and provider-neutral match/sync results. It does not own general persistence, lexical search, RRF, reranking, generation, citations, evaluation, or orchestration.
+
+`VECTOR_STORE_PROVIDER=pinecone` is optional and requires `requirements-pinecone.txt`, an explicit API key/index name/index host, and an existing index configured for cosine distance with exactly `EMBEDDING_DIMENSION`. CivicLens supplies the embeddings; Pinecone-hosted embedding and automatic index creation/deletion are out of scope. Stable chunk IDs and consistency hashes are stored under a deterministic namespace derived from the current corpus and embedding profile. Bounded SDK timeouts/retries and bounded post-upsert query checks must succeed before bootstrap reports success. There is no silent pgvector fallback or dual write.
+
+Pinecone semantic retrieval follows this required flow:
+
+```text
+query embedding -> Pinecone IDs/scores -> PostgreSQL metadata hydration
+                -> current-corpus/hash validation -> semantic result contract
+                -> PostgreSQL lexical retrieval -> CivicLens RRF
+                -> optional CivicLens reranking
+```
+
+Missing, stale, malformed, duplicated, incompatible, or partially synchronized matches fail as backend errors. A successful empty/weak retrieval can still produce normal CivicLens `NO_ANSWER`; configuration, authentication, timeout, index, and synchronization failures must instead reach the sanitized backend-unavailable/HTTP 503 path.
 
 PostgreSQL full-text search uses a stored weighted `tsvector` over source name, section title, and chunk text. A GIN index supports parameterized, read-only lexical queries using `websearch_to_tsquery`. Question filler is removed before the remaining bounded terms use PostgreSQL web-search semantics, so exact identifiers such as `complaint_type` are not suppressed by words such as "what" or "mean." This path complements semantic search for NYC 311 field names, agency terms, complaint/problem terminology, and technical identifiers.
 
@@ -154,13 +169,20 @@ Diagnostics are additive: `semantic_score`/`semantic_rank`, `lexical_score`/`lex
 ```text
 Question
     -> configured semantic provider
-    -> PostgreSQL semantic + lexical candidates
+    -> selected dense-vector provider
+    -> PostgreSQL hydration + PostgreSQL lexical candidates
     -> deterministic RRF
     -> optional bounded reranker
     -> existing context-only cited answer
 ```
 
 The default semantic minimum similarity is 0.25. PostgreSQL lexical candidates can still contribute through RRF, but unrelated dense matches below that threshold are excluded before answer generation.
+
+## Optional LangChain Core Compatibility
+
+ADR 001 compares LangChain Core and LlamaIndex Core and selects exactly LangChain Core because its `BaseRetriever`/`Document` boundary maps directly onto CivicLens results while overlapping with the existing optional LangGraph dependency graph. Install `requirements-langchain.txt` and use `create_langchain_retriever` from `src.integrations.langchain_retriever` only when a framework-compatible outbound retriever is needed.
+
+The lazy adapter calls the existing synchronous CivicLens retrieval boundary and maps chunk text, stable `chunk_id`, allow-listed source metadata, rank, and diagnostic scores. Its async method moves that same synchronous call to a worker thread; it does not introduce a separate async database/provider stack. The adapter does not move retrieval logic, embeddings, generation, citations, evaluation, or orchestration into LangChain. Answers generated by external LangChain components do not automatically receive CivicLens citation-validation or abstention guarantees.
 
 ## FastAPI and Shared Question Orchestration
 
@@ -183,7 +205,7 @@ Application result -> allow-listed FastAPI response -> Streamlit
 
 The optional graph is acyclic: input validation -> route decision -> one RAG or analytics execution -> final validation -> response generation. It applies a bounded step/recursion limit and a fixed one-tool-call maximum. The analytics node resolves only the Issue 16 Tool Registry; the RAG node calls the existing retrieval/generation path. There is no LLM router, planner, repeated tool loop, arbitrary tool execution, checkpointed memory, or hidden reasoning state. Missing LangGraph, invalid routes/results, registry failures, and exceeded limits produce controlled abstention/fallback results without changing the HTTP contract.
 
-`GET /health` is dependency-free liveness. `GET /ready` performs a bounded, read-only check for loadable configuration, reachable PostgreSQL, required RAG tables, exact current manifest document/chunk identities and hashes, and embeddings matching the configured provider/model/dimension. Neither endpoint calls OpenAI, loads models, performs retrieval/generation, or mutates the database.
+`GET /health` is dependency-free liveness. `GET /ready` performs a bounded, read-only check for loadable configuration, reachable PostgreSQL, required RAG tables, exact current manifest document/chunk identities/hashes, and lexical readiness. It then validates pgvector vectors/profile when pgvector is selected or Pinecone availability, dimension, cosine metric, deterministic namespace, and complete current-corpus metadata when Pinecone is selected. Neither endpoint loads embedding models, performs retrieval/generation, or mutates either store.
 
 Start the versioned local HTTP adapter with:
 
@@ -205,9 +227,9 @@ The Streamlit interface sends every question to the public API. The shared serve
 
 ## Docker Bootstrap and Readiness
 
-The Compose stack packages PostgreSQL/pgvector, FastAPI, and Streamlit. `docker compose run --rm api python -m scripts.bootstrap` runs ordered migrations, manifest ingestion, chunking, and embedding/index upserts by calling the existing project functions. Normal bootstrap is rerun-safe and never passes the explicit reindex flag. A stored provider/model/dimension mismatch stops with the existing clear error and requires a separate operator-approved reindex procedure.
+The default Compose stack packages PostgreSQL/pgvector, FastAPI, and Streamlit and requires no Issue 18 optional package. `docker compose run --rm api python -m scripts.bootstrap` runs ordered migrations, manifest ingestion, chunking, canonical PostgreSQL metadata persistence, selected dense-provider synchronization, and provider/corpus verification by calling existing project functions. Normal bootstrap is rerun-safe and never passes the explicit reindex flag. An incompatibility or provider failure stops bootstrap without fallback.
 
-Docker uses `/health` only for API process liveness. `/ready` retains the stricter Issue 12 semantics and returns `200` only when PostgreSQL contains the exact current manifest documents and chunks with a compatible active embedding profile. It may correctly return `503` while all three containers are running before bootstrap. Named volumes preserve database state and the local Hugging Face cache across ordinary stop/start cycles.
+Docker uses `/health` only for API process liveness. `/ready` returns `200` only when PostgreSQL contains exact current metadata/lexical state and the selected vector provider is complete and compatible. It may correctly return `503` while all three containers are running before bootstrap. Named volumes preserve database state and the local Hugging Face cache across ordinary stop/start cycles.
 
 ## Retrieval Troubleshooting
 
@@ -230,6 +252,8 @@ Issue 14 adds `CIVICLENS_API_BASE_URL` and `CIVICLENS_API_TIMEOUT_SECONDS` for t
 
 Issue 17 adds `ORCHESTRATION_MODE`, `LANGGRAPH_MAX_STEPS`, and `LANGGRAPH_TOOL_CALL_LIMIT`. `direct` is the default and works without the optional dependency. `langgraph` requires `requirements-langgraph.txt`; the maximum tool calls remains exactly one.
 
+Issue 18 adds `VECTOR_STORE_PROVIDER` (`pgvector` default or `pinecone`) and the Pinecone-only `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `PINECONE_INDEX_HOST`, `PINECONE_NAMESPACE_PREFIX`, `PINECONE_TIMEOUT_SECONDS`, `PINECONE_MAX_RETRIES`, and `PINECONE_SYNC_MAX_ATTEMPTS`. Pinecone requires `requirements-pinecone.txt`; native mode must not install it. LangChain compatibility is selected by server-side use of the optional adapter after installing `requirements-langchain.txt`; it does not change `/api/v1/answer` or browser configuration.
+
 ## Answer and Analytics Boundaries
 
 Issue 11 does not change Issue 9 retrieval. Documentation questions still use its final retrieved chunks; predefined analytics remains a separate deterministic route.
@@ -248,4 +272,4 @@ An optional `--answer-profile openai` path reuses the same real-retrieval evalua
 
 Disposable Markdown/JSON runs belong under ignored `data/evaluation/results/`; only the explicitly reviewed `docs/evaluation-report.md` is the version-controlled baseline. Dataset design, formulas, commands, and limitations are documented in `docs/evaluation-notes.md`.
 
-Live OpenAI evaluation, hosted observability, distributed tracing, Pinecone, LangChain, and LlamaIndex remain outside automated verification. Issue 16 tool-registry and Issue 17 bounded-LangGraph behavior are verified with offline-safe tests; the optional graph does not add an autonomous agent. The local Docker Compose deployment and versioned HTTP adapter do not add production API concerns such as authentication, streaming, rate limiting, or monitoring.
+Live OpenAI evaluation, hosted observability, distributed tracing, and real Pinecone service calls remain outside automated verification. Mocked Pinecone tests install the real optional SDK in a separate CI lane, and LangChain mapping tests install the selected real framework package in another lane. The opt-in `scripts.smoke_pinecone` command requires an explicit disposable namespace prefix and live-write acknowledgement; it is never automatic and does not print credentials or delete the namespace. No live Pinecone success is claimed by the Issue 18 implementation unless that command was run successfully. LlamaIndex is intentionally not implemented. The local Docker Compose deployment and versioned HTTP adapter do not add production API concerns such as authentication, streaming, rate limiting, or monitoring.

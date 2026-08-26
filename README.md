@@ -19,6 +19,7 @@ The project is designed to show how an operational data platform can pair docume
 - Issue 13 adds opt-in privacy-conscious execution metadata, stable `query_id` tracing, feedback, and ordered SQL migrations without storing raw questions or answers.
 - Issue 16 exposes the four predefined sample analytics capabilities through strict typed, allowlisted, read-only tools with fixed IDs, bounded results, and source provenance.
 - Issue 17 keeps direct orchestration as the default and adds one optional bounded LangGraph workflow that reuses the same deterministic route decision, RAG pipeline, and safe tool registry.
+- Issue 18 keeps PostgreSQL + pgvector + native CivicLens RAG as the default, adds an optional Pinecone dense-vector adapter, and exposes one optional LangChain Core retriever compatibility wrapper.
 - A dated Render deployment proves the Streamlit -> FastAPI -> PostgreSQL/pgvector path with deterministic embeddings, a cited answer, and safe abstention.
 - GitHub Actions runs offline-safe pytest and compileall checks.
 - Local Docker Compose and a non-production Render portfolio demo are available; there is no production deployment, live NYC 311 data, default OpenAI usage, or production text-to-SQL claim.
@@ -57,9 +58,9 @@ flowchart TD
     api --> orchestrator["Shared question orchestration"]
     orchestrator --> mode["direct default<br/>or LangGraph opt-in"]
     mode --> direct["Direct execution"]
-    mode --> graph["Bounded graph<br/>validate -> route -> execute -> validate -> respond"]
+    mode --> boundedGraph["Bounded graph<br/>validate → route → execute → validate → respond"]
     direct --> routeDecision["Shared deterministic route decision"]
-    graph --> routeDecision
+    boundedGraph --> routeDecision
     routeDecision --> semantic
     routeDecision --> analyticsRouter["Predefined analytics router"]
     analyticsRouter --> analyticsRegistry["Fixed typed tool registry"]
@@ -93,8 +94,8 @@ The project does not ingest millions of raw NYC 311 records into the vector data
 2. Markdown is split within heading sections; plain text uses a compatible fallback.
 3. Stable document/chunk IDs, heading context, provenance, normalized content hashes, ingestion time, and `word_count` are preserved.
 4. The default real local provider generates 384-dimensional embeddings with `sentence-transformers/all-MiniLM-L6-v2`; deterministic embeddings remain the CI fallback.
-5. Chunks, Issue 8 metadata, the active embedding profile, and vectors are stored in PostgreSQL + pgvector.
-6. PostgreSQL retrieves bounded semantic and lexical candidate sets while preserving current-chunk filters.
+5. PostgreSQL always stores authoritative documents, chunks, text, provenance, hashes, and lexical indexes. The selected dense-vector provider stores only CivicLens-generated vectors; pgvector is the default.
+6. The selected provider returns bounded semantic IDs/scores, which are hydrated and current-corpus-validated through PostgreSQL. PostgreSQL independently supplies lexical candidates.
 7. Reciprocal Rank Fusion deduplicates and combines the candidates deterministically.
 8. An optional local cross-encoder reranks only the configured bounded candidate set.
 9. The configured answer provider receives only the question and allow-listed retrieved evidence; CivicLens validates stable chunk-ID citations before displaying provenance.
@@ -118,6 +119,23 @@ This keeps the local demo predictable and offline-friendly while still showing h
 `ORCHESTRATION_MODE=direct` is the default and reference behavior. It has no LangGraph dependency. Install the optional dependency with `python -m pip install -r requirements-langgraph.txt` and set `ORCHESTRATION_MODE=langgraph` to execute the same deterministic route decision through a small acyclic graph: input validation, route decision, one RAG or analytics execution, final validation, and response generation.
 
 The graph reuses Issue 9 retrieval, Issue 11 grounded generation/citation validation, and the Issue 16 fixed Tool Registry. `LANGGRAPH_MAX_STEPS` is bounded from 5 through 32 (default 8), while `LANGGRAPH_TOOL_CALL_LIMIT` is fixed at 1. An unsupported route, unavailable optional dependency, invalid result, tool-validation failure, or exceeded limit produces a controlled abstention/fallback. This is not an autonomous agent: it has no LLM router, planner, tool loop, arbitrary tool execution, memory, or hidden reasoning trace. The existing `POST /api/v1/answer` contract remains unchanged.
+
+## Optional Issue 18 Portability Adapters
+
+The default remains `VECTOR_STORE_PROVIDER=pgvector` with native CivicLens RAG. PostgreSQL is always authoritative for documents, chunks, chunk text, provenance, corpus hashes, and full-text retrieval. The small dense-vector contract is used by the default pgvector path and by the optional Pinecone path; lexical search, RRF, reranking, generation, citation validation, evaluation, and orchestration remain native CivicLens components.
+
+Pinecone is an explicit server-side option. Install `requirements-pinecone.txt`, configure an existing cosine index whose dimension exactly matches `EMBEDDING_DIMENSION`, and set `VECTOR_STORE_PROVIDER=pinecone`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, and `PINECONE_INDEX_HOST`. CivicLens does not create/delete indexes or use Pinecone-hosted embeddings. Bootstrap first persists PostgreSQL metadata, then synchronizes a deterministic current-corpus namespace and performs bounded query-visibility verification. Retrieval accepts Pinecone IDs/scores only after PostgreSQL hydration and identity/hash validation. Provider, authentication, timeout, index, or synchronization failures never fall back to pgvector and remain backend-unavailable errors rather than `NO_ANSWER`.
+
+The ADR at `docs/adr/001-rag-framework-selection.md` selects exactly one framework: LangChain Core. Install `requirements-langchain.txt` and call `create_langchain_retriever` from `src.integrations.langchain_retriever` in server-side Python when a LangChain `BaseRetriever`/`Document` boundary is needed. This wrapper calls native CivicLens retrieval and maps stable `chunk_id`, safe source metadata, rank, and scores; it is not a second RAG or answer API. Answers generated later by external LangChain code do not automatically inherit CivicLens citation validation or abstention guarantees. Native FastAPI, Streamlit, Docker, and `POST /api/v1/answer` do not require or select this adapter.
+
+An optional live Pinecone smoke writes a small explicit namespace prefix and is never run by CI:
+
+```bash
+python -m pip install -r requirements-pinecone.txt
+python -m scripts.smoke_pinecone --namespace-prefix issue18-disposable --limit 3 --confirm-live-write
+```
+
+The command requires all Pinecone settings plus a reachable PostgreSQL database, does not print credentials, verifies sync/query and PostgreSQL hydration, and does not delete the namespace automatically. No successful live Pinecone validation is claimed unless this command was actually run.
 
 ## Answer Providers, Grounding, and Citations
 
@@ -170,7 +188,7 @@ docker compose run --rm api python -m scripts.bootstrap
 
 The normal stack contains `postgres`, `api`, and `ui`. Inside Compose, FastAPI reaches the database at `postgres:5432` and Streamlit reaches FastAPI at `http://api:8000`; host-facing defaults remain PostgreSQL `5432`, API `8000`, and Streamlit `8501`. Both application processes bind to `0.0.0.0` inside their containers. OpenAI is disabled and the local answer provider is the default.
 
-The one-off bootstrap command applies Issue 13 migrations, validates/loads the source manifest, builds current chunks, and creates or upserts the configured embeddings and retrieval indexes. It reuses the project modules in that order and is safe to rerun: it does not reset the database, truncate tables, delete volumes, or erase observability/feedback history. Ingestion fails on a missing source or hash mismatch. An incompatible stored embedding profile fails clearly instead of silently reindexing.
+The one-off bootstrap command applies Issue 13 migrations, validates/loads the source manifest, builds current chunks, persists canonical PostgreSQL metadata, synchronizes the selected dense-vector provider, and verifies corpus compatibility before reporting success. It is safe to rerun: it does not reset the database, truncate tables, delete volumes, or erase observability/feedback history. Ingestion fails on a missing source or hash mismatch. An incompatible embedding/index profile fails clearly instead of silently reindexing or changing provider.
 
 If an intentional provider/model/dimension change requires rebuilding retrieval storage, review the model choice first and run the explicit operation separately:
 
@@ -185,7 +203,7 @@ This is an operator-requested retrieval reindex, not part of normal bootstrap. S
 - Streamlit: `http://localhost:8501`
 - FastAPI: `http://localhost:8000`
 - `GET /health`: cheap process liveness used by Docker; it can return `200` before bootstrap.
-- `GET /ready`: real local RAG readiness; it correctly returns `503` until the current schema, corpus, chunks, embedding profile, and indexes are prepared.
+- `GET /ready`: bounded read-only RAG readiness; it always checks PostgreSQL metadata/lexical readiness and also checks the selected pgvector or Pinecone current-corpus state.
 
 ```bash
 curl http://localhost:8000/health
@@ -310,18 +328,16 @@ These screenshots are captured from a local Streamlit run.
 - Evaluation is a small curated portfolio benchmark and does not use an LLM judge.
 - Observability is local and opt-in; there is no hosted dashboard, distributed tracing, alerting, retention policy, compliance guarantee, authentication, or user/session tracking.
 
-## Future Work
-
-- Optionally demonstrate vector-store and RAG-framework portability.
-
 ## Tech Stack
 
 - Python
 - Streamlit
 - FastAPI and Uvicorn
 - Optional LangGraph, disabled by default
+- Optional LangChain Core compatibility adapter, disabled by default
 - PostgreSQL
 - pgvector
+- Optional Pinecone dense-vector adapter, disabled by default
 - PostgreSQL full-text search
 - Sentence Transformers
 - Docker
@@ -354,6 +370,8 @@ civiclens-rag-nyc311/
 |   |-- architecture.md
 |   |-- data-sources.md
 |   |-- evaluation-notes.md
+|   |-- adr/
+|   |   `-- 001-rag-framework-selection.md
 |   |-- knowledge/
 |   |   |-- civiclens-lakehouse-runbook.md
 |   |   |-- nyc311-service-request-fields.md
@@ -375,19 +393,24 @@ civiclens-rag-nyc311/
 |   |-- evaluation/
 |   |-- generation/
 |   |-- ingestion/
+|   |-- integrations/
 |   |-- observability/
 |   |-- orchestration/
-|   `-- retrieval/
-|       |-- hybrid_retriever.py
-|       `-- reranker.py
+|   |-- retrieval/
+|   |   |-- hybrid_retriever.py
+|   |   `-- reranker.py
+|   `-- vectorstores/
 |-- scripts/
-|   `-- bootstrap.py
+|   |-- bootstrap.py
+|   `-- smoke_pinecone.py
 |-- tests/
 |-- .dockerignore
 |-- Dockerfile.api
 |-- Dockerfile.ui
 |-- docker-compose.yml
 |-- requirements-ui.txt
+|-- requirements-langchain.txt
+|-- requirements-pinecone.txt
 |-- requirements.txt
 `-- README.md
 ```

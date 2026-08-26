@@ -220,7 +220,15 @@ def test_semantic_retrieval_validates_profile_dimension_and_uses_pgvector(
         "sentence-transformers/all-MiniLM-L6-v2",
         384,
     )
-    cursor = SequencedCursor([[profile], [retrieval_row(0.81)]])
+    vector_row = (
+        "chunk_1",
+        "doc_1",
+        "sha256:chunk",
+        "sha256:document",
+        "sha256:chunking-config",
+        0.81,
+    )
+    cursor = SequencedCursor([[profile], [vector_row], [retrieval_row()[:-1]]])
     monkeypatch.setitem(
         sys.modules,
         "psycopg",
@@ -243,15 +251,18 @@ def test_semantic_retrieval_validates_profile_dimension_and_uses_pgvector(
         provider=FakeSemanticProvider(),
     )
 
-    assert len(cursor.calls) == 2
+    assert len(cursor.calls) == 3
     profile_query, _ = cursor.calls[0]
     semantic_query, parameters = cursor.calls[1]
+    hydration_query, hydration_parameters = cursor.calls[2]
     assert "SELECT DISTINCT" in profile_query
     assert "c.semantic_embedding <=> %s::vector" in semantic_query
     assert "vector_dims(c.semantic_embedding) = %s" in semantic_query
     assert parameters[1:4] == profile
     assert parameters[4] == 384
     assert parameters[-2:] == (12, 0.25)
+    assert "c.chunk_id = ANY(%s)" in hydration_query
+    assert hydration_parameters == (["chunk_1"],)
     assert results[0]["semantic_score"] == 0.81
     assert results[0]["retrieval_mode"] == "semantic"
     assert results[0]["source_path"] == "docs/architecture.md"

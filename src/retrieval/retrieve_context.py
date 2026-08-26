@@ -6,15 +6,16 @@ import argparse
 from dataclasses import replace
 from typing import Iterable
 
-from src.common.config import Settings
-from src.embeddings.embed_chunks import (
-    fetch_embedding_profiles,
-    validate_stored_embedding_profiles,
-    vector_column_for_spec,
-    vector_literal,
-)
+from src.common.config import PINECONE_VECTOR_STORE, Settings
 from src.embeddings.providers import EmbeddingProvider, create_embedding_provider
 from src.embeddings.providers.deterministic import EMBEDDING_STOPWORDS, TOKEN_PATTERN
+from src.vectorstores.base import VectorStore
+from src.vectorstores.factory import create_vector_store
+from src.vectorstores.models import (
+    VectorIdentity,
+    VectorMatch,
+    VectorStoreConsistencyError,
+)
 
 
 DEFAULT_TOP_K = 5
@@ -136,6 +137,7 @@ def retrieve_semantic_context(
     min_similarity: float = DEFAULT_MIN_SIMILARITY,
     settings: Settings | None = None,
     provider: EmbeddingProvider | None = None,
+    vector_store: VectorStore | None = None,
 ) -> list[dict]:
     cleaned_question = question.strip()
     if not cleaned_question:
@@ -145,87 +147,114 @@ def retrieve_semantic_context(
     active_settings = settings or Settings.from_env()
     active_provider = provider or create_embedding_provider(active_settings)
     active_spec = active_provider.spec
-    vector_column = vector_column_for_spec(active_spec)
+    identities: tuple[VectorIdentity, ...] = ()
+    if active_settings.vector_store_provider == PINECONE_VECTOR_STORE:
+        from src.orchestration.readiness import load_current_corpus_identity
+
+        identities = tuple(
+            VectorIdentity(
+                chunk_id=item.chunk_id,
+                document_id=item.document_id,
+                content_hash=item.content_hash,
+                document_content_hash=item.document_content_hash,
+                chunking_config_hash=item.chunking_config_hash,
+            )
+            for item in load_current_corpus_identity().chunks
+        )
+    active_store = vector_store or create_vector_store(
+        active_settings,
+        active_spec,
+        identities,
+    )
+    question_embedding = active_provider.embed(cleaned_question)
+    matches = active_store.query(
+        question_embedding,
+        candidate_limit=limit,
+        min_similarity=min_similarity,
+    )
+    return hydrate_vector_matches(matches, active_settings)
+
+
+def hydrate_vector_matches(
+    matches: Iterable[VectorMatch],
+    settings: Settings,
+) -> list[dict]:
+    """Hydrate vector IDs through authoritative current PostgreSQL metadata."""
+
+    ordered_matches = list(matches)
+    if not ordered_matches:
+        return []
+    match_ids = [match.identity.chunk_id for match in ordered_matches]
+    if len(set(match_ids)) != len(match_ids):
+        raise VectorStoreConsistencyError("Vector provider returned duplicate chunk IDs")
 
     import psycopg
 
-    with psycopg.connect(active_settings.database_url) as connection:
+    with psycopg.connect(settings.database_url) as connection:
         with connection.cursor() as cursor:
-            profiles = fetch_embedding_profiles(cursor)
-            validate_stored_embedding_profiles(profiles, active_spec)
-            question_embedding = active_provider.embed(cleaned_question)
-            question_vector = vector_literal(question_embedding)
             cursor.execute(
-                f"""
+                """
                 SELECT
-                    chunk_id,
-                    document_id,
-                    chunk_text,
-                    source_name,
-                    source_type,
-                    source_category,
-                    source_path,
-                    source_url,
-                    source_version,
-                    source_retrieved_at,
-                    section_title,
-                    heading_path,
-                    word_count,
-                    content_hash,
-                    document_content_hash,
-                    chunking_config_hash,
-                    ingested_at,
-                    semantic_score
-                FROM (
-                    SELECT
-                        c.chunk_id,
-                        c.document_id,
-                        c.chunk_text,
-                        c.source_name,
-                        c.source_type,
-                        c.source_category,
-                        c.source_path,
-                        c.source_url,
-                        c.source_version,
-                        c.source_retrieved_at,
-                        c.section_title,
-                        c.heading_path,
-                        c.word_count,
-                        c.content_hash,
-                        c.document_content_hash,
-                        c.chunking_config_hash,
-                        c.ingested_at,
-                        1 - (c.{vector_column} <=> %s::vector) AS semantic_score
-                    FROM chunks AS c
-                    INNER JOIN documents AS d ON d.document_id = c.document_id
-                    WHERE c.{vector_column} IS NOT NULL
-                      AND c.embedding_provider = %s
-                      AND c.embedding_model = %s
-                      AND c.embedding_dimension = %s
-                      AND vector_dims(c.{vector_column}) = %s
-                      AND c.content_hash IS NOT NULL
-                      AND c.document_content_hash = d.content_hash
-                      AND c.chunking_config_hash = d.chunking_config_hash
-                    ORDER BY c.{vector_column} <=> %s::vector, c.chunk_id
-                    LIMIT %s
-                ) AS scored_chunks
-                WHERE semantic_score >= %s
-                ORDER BY semantic_score DESC, chunk_id
+                    c.chunk_id,
+                    c.document_id,
+                    c.chunk_text,
+                    c.source_name,
+                    c.source_type,
+                    c.source_category,
+                    c.source_path,
+                    c.source_url,
+                    c.source_version,
+                    c.source_retrieved_at,
+                    c.section_title,
+                    c.heading_path,
+                    c.word_count,
+                    c.content_hash,
+                    c.document_content_hash,
+                    c.chunking_config_hash,
+                    c.ingested_at
+                FROM chunks AS c
+                INNER JOIN documents AS d ON d.document_id = c.document_id
+                WHERE c.chunk_id = ANY(%s)
+                  AND c.content_hash IS NOT NULL
+                  AND c.document_content_hash = d.content_hash
+                  AND c.chunking_config_hash = d.chunking_config_hash
                 """,
-                (
-                    question_vector,
-                    active_spec.provider,
-                    active_spec.model,
-                    active_spec.dimension,
-                    active_spec.dimension,
-                    question_vector,
-                    limit,
-                    min_similarity,
-                ),
+                (match_ids,),
             )
             rows = cursor.fetchall()
 
-    return format_retrieval_rows(rows)
+    if len({str(row[0]) for row in rows}) != len(rows):
+        raise VectorStoreConsistencyError(
+            "PostgreSQL returned duplicate vector-match metadata"
+        )
+    hydrated = {str(row[0]): row for row in rows}
+    if set(hydrated) != set(match_ids):
+        raise VectorStoreConsistencyError(
+            "Vector matches are incomplete or stale in PostgreSQL"
+        )
+
+    results: list[dict] = []
+    for match in ordered_matches:
+        row = hydrated[match.identity.chunk_id]
+        stored_identity = VectorIdentity(
+            chunk_id=str(row[0]),
+            document_id=str(row[1]),
+            content_hash=str(row[13]),
+            document_content_hash=str(row[14]),
+            chunking_config_hash=str(row[15]),
+        )
+        if stored_identity != match.identity:
+            raise VectorStoreConsistencyError(
+                "Vector match metadata is incompatible with PostgreSQL"
+            )
+        results.append(
+            result_from_row(
+                (*row, match.score),
+                retrieval_mode="semantic",
+                semantic_rank=match.rank,
+            )
+        )
+    return results
 
 
 def retrieve_lexical_context(

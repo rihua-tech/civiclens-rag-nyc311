@@ -120,3 +120,37 @@ def test_malformed_graph_provenance_becomes_safe_public_abstention(monkeypatch):
     assert body["sources"] == []
     assert "must not pass" not in body["answer"]
 
+
+def test_langgraph_rag_backend_failure_returns_sanitized_503(monkeypatch):
+    provider_secret = "pcsk_provider-secret@index.internal"
+
+    def unavailable_rag(*args, **kwargs):
+        raise RuntimeError(provider_secret)
+
+    monkeypatch.setattr(
+        "src.orchestration.question_router.answer_question",
+        unavailable_rag,
+    )
+    app.dependency_overrides[get_question_router] = lambda: (
+        lambda question, top_k: route_question(
+            question,
+            top_k=top_k,
+            settings=_settings(),
+        )
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/v1/answer",
+        json={"question": "What does complaint_type mean?"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": {
+            "code": "backend_unavailable",
+            "message": "The local question-answering backend is unavailable.",
+        }
+    }
+    assert provider_secret not in response.text
+    assert "RuntimeError" not in response.text
+

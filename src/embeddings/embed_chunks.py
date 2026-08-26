@@ -1,26 +1,18 @@
-"""Generate embeddings for local chunks and store them in PostgreSQL/pgvector."""
+"""Generate embeddings after persisting canonical PostgreSQL metadata."""
 
 from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from src.common.config import (
     DETERMINISTIC_DIMENSION,
     DETERMINISTIC_MODEL,
-    DETERMINISTIC_PROVIDER,
-    SEMANTIC_PROVIDER,
     Settings,
 )
-from src.embeddings.providers import (
-    EmbeddingCompatibilityError,
-    EmbeddingProvider,
-    EmbeddingSpec,
-    create_embedding_provider,
-    validate_embedding,
-)
+from src.embeddings.providers import EmbeddingProvider, create_embedding_provider
 from src.embeddings.providers.deterministic import (
     EMBEDDING_STOPWORDS as EMBEDDING_STOPWORDS,
     TOKEN_PATTERN as TOKEN_PATTERN,
@@ -28,14 +20,16 @@ from src.embeddings.providers.deterministic import (
     tokenize_for_embedding as tokenize_for_embedding,
 )
 from src.embeddings.providers.openai_provider import OpenAIEmbeddingProvider
+from src.vectorstores.base import VectorStore
+from src.vectorstores.factory import create_vector_store
+from src.vectorstores.models import VectorIdentity, VectorRecord, VectorSyncResult
+from src.vectorstores.postgres_metadata import persist_postgres_metadata
 
 
 DEFAULT_INPUT_PATH = Path("data/processed/chunks.jsonl")
 DEFAULT_SCHEMA_PATH = Path("sql/schema.sql")
 LOCAL_EMBEDDING_MODEL = DETERMINISTIC_MODEL
 EMBEDDING_DIMENSIONS = DETERMINISTIC_DIMENSION
-LEGACY_VECTOR_COLUMN = "embedding"
-SEMANTIC_VECTOR_COLUMN = "semantic_embedding"
 
 
 def project_root() -> Path:
@@ -62,7 +56,10 @@ def load_chunks(path: str | Path) -> list[dict]:
     return chunks
 
 
-def local_deterministic_embedding(text: str, dimensions: int = EMBEDDING_DIMENSIONS) -> list[float]:
+def local_deterministic_embedding(
+    text: str,
+    dimensions: int = EMBEDDING_DIMENSIONS,
+) -> list[float]:
     return deterministic_embedding(text, dimensions)
 
 
@@ -88,244 +85,53 @@ def generate_embedding(
     return active_provider.embed(text)
 
 
-def vector_literal(embedding: Iterable[float]) -> str:
-    return "[" + ",".join(format(float(value), ".10g") for value in embedding) + "]"
+def synchronize_chunks(
+    chunks: Iterable[dict],
+    settings: Settings,
+    schema_path: Path | None = None,
+    provider: EmbeddingProvider | None = None,
+    reindex: bool = False,
+    vector_store: VectorStore | None = None,
+) -> VectorSyncResult:
+    """Persist PostgreSQL metadata, then synchronize exactly one vector provider."""
 
+    chunk_records = list(chunks)
+    if not chunk_records:
+        raise ValueError("No chunks are available to synchronize")
 
-def vector_column_for_spec(spec: EmbeddingSpec) -> str:
-    if spec.provider == SEMANTIC_PROVIDER:
-        if spec.dimension != 384:
-            raise EmbeddingCompatibilityError(
-                f"The local semantic pgvector column is vector(384), but provider "
-                f"{spec.provider!r} model {spec.model!r} is configured for "
-                f"{spec.dimension} dimensions. Update the narrowly scoped Issue 9 schema "
-                "before running the documented full reindex."
-            )
-        return SEMANTIC_VECTOR_COLUMN
-    if spec.dimension != EMBEDDING_DIMENSIONS:
-        raise EmbeddingCompatibilityError(
-            f"The backward-compatible pgvector column is vector({EMBEDDING_DIMENSIONS}), "
-            f"but provider {spec.provider!r} model {spec.model!r} is configured for "
-            f"{spec.dimension} dimensions."
+    # PostgreSQL is authoritative even when vector-provider setup or sync fails.
+    persist_postgres_metadata(
+        chunk_records,
+        settings,
+        schema_path=schema_path,
+    )
+
+    active_provider = provider or create_embedding_provider(settings)
+    active_spec = active_provider.spec
+    identities = [VectorIdentity.from_chunk(chunk) for chunk in chunk_records]
+    active_store = vector_store or create_vector_store(
+        settings,
+        active_spec,
+        identities,
+    )
+    active_store.prepare_sync(reindex=reindex)
+
+    embeddings = active_provider.embed_many(
+        [str(chunk["chunk_text"]) for chunk in chunk_records]
+    )
+    if len(embeddings) != len(chunk_records):
+        raise RuntimeError(
+            f"Embedding provider returned {len(embeddings)} vectors for "
+            f"{len(chunk_records)} chunks"
         )
-    return LEGACY_VECTOR_COLUMN
-
-
-def fetch_embedding_profiles(cursor) -> set[tuple[str | None, str | None, int | None]]:
-    cursor.execute(
-        """
-        SELECT DISTINCT
-            c.embedding_provider,
-            c.embedding_model,
-            c.embedding_dimension
-        FROM chunks AS c
-        INNER JOIN documents AS d ON d.document_id = c.document_id
-        WHERE (c.embedding IS NOT NULL OR c.semantic_embedding IS NOT NULL)
-          AND c.content_hash IS NOT NULL
-          AND c.document_content_hash = d.content_hash
-          AND c.chunking_config_hash = d.chunking_config_hash
-        """
-    )
-    return {tuple(row) for row in cursor.fetchall()}
-
-
-def validate_stored_embedding_profiles(
-    profiles: set[tuple[str | None, str | None, int | None]],
-    active_spec: EmbeddingSpec,
-) -> None:
-    expected = (active_spec.provider, active_spec.model, active_spec.dimension)
-    incompatible = profiles.difference({expected})
-    if incompatible:
-        formatted = ", ".join(repr(profile) for profile in sorted(incompatible, key=repr))
-        raise EmbeddingCompatibilityError(
-            "Stored current chunks use an incompatible or unrecorded embedding profile: "
-            f"{formatted}. Active profile is {expected!r}. Run "
-            "`python -m src.embeddings.embed_chunks --reindex` to clear all old vectors "
-            "and rebuild them with one provider/model/dimension."
-        )
-
-
-def clear_stored_embeddings(cursor) -> None:
-    cursor.execute(
-        """
-        UPDATE chunks
-        SET embedding = NULL,
-            semantic_embedding = NULL,
-            embedding_provider = NULL,
-            embedding_model = NULL,
-            embedding_dimension = NULL
-        WHERE embedding IS NOT NULL
-           OR semantic_embedding IS NOT NULL
-           OR embedding_provider IS NOT NULL
-           OR embedding_model IS NOT NULL
-           OR embedding_dimension IS NOT NULL
-        """
-    )
-
-
-def rebuild_retrieval_indexes(cursor) -> None:
-    cursor.execute("REINDEX INDEX idx_chunks_semantic_embedding_hnsw")
-    cursor.execute("REINDEX INDEX idx_chunks_search_vector_gin")
-    cursor.execute("ANALYZE chunks")
-
-
-def ensure_schema(connection, schema_path: Path) -> None:
-    schema_sql = schema_path.read_text(encoding="utf-8")
-    with connection.cursor() as cursor:
-        cursor.execute(schema_sql)
-
-
-def upsert_document(cursor, chunk: dict) -> None:
-    cursor.execute(
-        """
-        INSERT INTO documents (
-            document_id,
-            source_name,
-            source_type,
-            source_category,
-            source_path,
-            source_url,
-            source_version,
-            source_retrieved_at,
-            content_hash,
-            chunking_config_hash,
-            ingested_at
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (document_id) DO UPDATE SET
-            source_name = EXCLUDED.source_name,
-            source_type = EXCLUDED.source_type,
-            source_category = EXCLUDED.source_category,
-            source_path = EXCLUDED.source_path,
-            source_url = EXCLUDED.source_url,
-            source_version = EXCLUDED.source_version,
-            source_retrieved_at = EXCLUDED.source_retrieved_at,
-            content_hash = EXCLUDED.content_hash,
-            chunking_config_hash = EXCLUDED.chunking_config_hash,
-            ingested_at = EXCLUDED.ingested_at
-        """,
-        (
-            chunk["document_id"],
-            chunk.get("source_name") or "unknown",
-            chunk.get("source_type"),
-            chunk.get("source_category"),
-            chunk.get("source_path"),
-            chunk.get("source_url"),
-            chunk.get("source_version"),
-            chunk.get("source_retrieved_at"),
-            chunk.get("document_content_hash"),
-            chunk.get("chunking_config_hash"),
-            chunk.get("ingested_at"),
-        ),
-    )
-
-
-def upsert_chunk(
-    cursor,
-    chunk: dict,
-    embedding: list[float],
-    embedding_spec: EmbeddingSpec | None = None,
-) -> None:
-    spec = embedding_spec or EmbeddingSpec(
-        DETERMINISTIC_PROVIDER,
-        LOCAL_EMBEDDING_MODEL,
-        EMBEDDING_DIMENSIONS,
-    )
-    if embedding_spec is None:
-        vector_column = LEGACY_VECTOR_COLUMN
-        embedding_values = [float(value) for value in embedding]
-    else:
-        vector_column = vector_column_for_spec(spec)
-        embedding_values = validate_embedding(embedding, spec)
-    legacy_vector = (
-        vector_literal(embedding_values) if vector_column == LEGACY_VECTOR_COLUMN else None
-    )
-    semantic_vector = (
-        vector_literal(embedding_values) if vector_column == SEMANTIC_VECTOR_COLUMN else None
-    )
-
-    cursor.execute(
-        """
-        INSERT INTO chunks (
-            chunk_id,
-            document_id,
-            chunk_text,
-            chunk_index,
-            source_name,
-            source_type,
-            source_category,
-            source_path,
-            source_url,
-            source_version,
-            source_retrieved_at,
-            section_title,
-            heading_path,
-            word_count,
-            content_hash,
-            document_content_hash,
-            chunking_config_hash,
-            ingested_at,
-            embedding_provider,
-            embedding_model,
-            embedding_dimension,
-            embedding,
-            semantic_embedding
-        )
-        VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s::vector, %s::vector
-        )
-        ON CONFLICT (chunk_id) DO UPDATE SET
-            document_id = EXCLUDED.document_id,
-            chunk_text = EXCLUDED.chunk_text,
-            chunk_index = EXCLUDED.chunk_index,
-            source_name = EXCLUDED.source_name,
-            source_type = EXCLUDED.source_type,
-            source_category = EXCLUDED.source_category,
-            source_path = EXCLUDED.source_path,
-            source_url = EXCLUDED.source_url,
-            source_version = EXCLUDED.source_version,
-            source_retrieved_at = EXCLUDED.source_retrieved_at,
-            section_title = EXCLUDED.section_title,
-            heading_path = EXCLUDED.heading_path,
-            word_count = EXCLUDED.word_count,
-            content_hash = EXCLUDED.content_hash,
-            document_content_hash = EXCLUDED.document_content_hash,
-            chunking_config_hash = EXCLUDED.chunking_config_hash,
-            ingested_at = EXCLUDED.ingested_at,
-            embedding_provider = EXCLUDED.embedding_provider,
-            embedding_model = EXCLUDED.embedding_model,
-            embedding_dimension = EXCLUDED.embedding_dimension,
-            embedding = EXCLUDED.embedding,
-            semantic_embedding = EXCLUDED.semantic_embedding
-        """,
-        (
-            chunk["chunk_id"],
-            chunk["document_id"],
-            chunk["chunk_text"],
-            chunk.get("chunk_index"),
-            chunk.get("source_name"),
-            chunk.get("source_type"),
-            chunk.get("source_category"),
-            chunk.get("source_path"),
-            chunk.get("source_url"),
-            chunk.get("source_version"),
-            chunk.get("source_retrieved_at"),
-            chunk.get("section_title"),
-            chunk.get("heading_path") or [],
-            chunk.get("word_count", chunk.get("token_count")),
-            chunk.get("content_hash"),
-            chunk.get("document_content_hash"),
-            chunk.get("chunking_config_hash"),
-            chunk.get("ingested_at"),
-            spec.provider,
-            spec.model,
-            spec.dimension,
-            legacy_vector,
-            semantic_vector,
-        ),
-    )
+    records = [
+        VectorRecord.create(chunk, embedding, active_spec)
+        for chunk, embedding in zip(chunk_records, embeddings, strict=True)
+    ]
+    result = active_store.sync(records, reindex=reindex)
+    if result.records_written != len(records) or not result.verified:
+        raise RuntimeError("Dense-vector synchronization did not verify the full corpus")
+    return result
 
 
 def store_chunks(
@@ -334,42 +140,18 @@ def store_chunks(
     schema_path: Path | None = None,
     provider: EmbeddingProvider | None = None,
     reindex: bool = False,
+    vector_store: VectorStore | None = None,
 ) -> int:
-    import psycopg
+    """Backward-compatible count-returning wrapper over provider synchronization."""
 
-    chunk_records = list(chunks)
-    active_provider = provider or create_embedding_provider(settings)
-    active_spec = active_provider.spec
-    vector_column_for_spec(active_spec)
-
-    with psycopg.connect(settings.database_url) as connection:
-        if schema_path is not None:
-            ensure_schema(connection, schema_path)
-
-        with connection.cursor() as cursor:
-            if reindex:
-                clear_stored_embeddings(cursor)
-            else:
-                profiles = fetch_embedding_profiles(cursor)
-                validate_stored_embedding_profiles(profiles, active_spec)
-
-            embeddings = active_provider.embed_many(
-                [str(chunk["chunk_text"]) for chunk in chunk_records]
-            )
-            if len(embeddings) != len(chunk_records):
-                raise RuntimeError(
-                    f"Embedding provider returned {len(embeddings)} vectors for "
-                    f"{len(chunk_records)} chunks"
-                )
-
-            for chunk, embedding in zip(chunk_records, embeddings, strict=True):
-                upsert_document(cursor, chunk)
-                upsert_chunk(cursor, chunk, embedding, active_spec)
-
-            if reindex:
-                rebuild_retrieval_indexes(cursor)
-
-    return len(chunk_records)
+    return synchronize_chunks(
+        chunks,
+        settings,
+        schema_path,
+        provider=provider,
+        reindex=reindex,
+        vector_store=vector_store,
+    ).records_written
 
 
 def embed_chunks(
@@ -386,39 +168,39 @@ def embed_chunks(
     active_settings = settings or Settings.from_env()
 
     chunks = load_chunks(input_file)
-    stored_count = store_chunks(
+    result = synchronize_chunks(
         chunks,
         active_settings,
         schema_file,
         provider=provider,
         reindex=reindex,
     )
-    return len(chunks), stored_count, active_settings.safe_database_target
+    return len(chunks), result.records_written, result.target
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Embed local chunks and store one compatible embedding profile."
+        description="Persist metadata and synchronize one compatible vector provider."
     )
     parser.add_argument(
         "--reindex",
         action="store_true",
-        help="Clear every stored vector/profile before fully re-embedding current chunks.",
+        help="Clear pgvector values before fully rebuilding the selected provider.",
     )
     args = parser.parse_args()
     settings = Settings.from_env()
     provider = create_embedding_provider(settings)
-    chunks_read, chunks_stored, database_target = embed_chunks(
+    chunks_read, chunks_stored, vector_target = embed_chunks(
         settings=settings,
         provider=provider,
         reindex=args.reindex,
     )
     print(f"Chunks read: {chunks_read}")
-    print(f"Chunks inserted/upserted: {chunks_stored}")
+    print(f"Chunks synchronized: {chunks_stored}")
     print(f"Embedding provider: {provider.spec.provider}")
     print(f"Embedding model: {provider.spec.model}")
     print(f"Embedding dimension: {provider.spec.dimension}")
-    print(f"Database target: {database_target}")
+    print(f"Vector target: {vector_target}")
 
 
 if __name__ == "__main__":

@@ -28,6 +28,12 @@ LANGGRAPH_ORCHESTRATION_MODE = "langgraph"
 DEFAULT_LANGGRAPH_MAX_STEPS = 8
 MAX_LANGGRAPH_MAX_STEPS = 32
 LANGGRAPH_TOOL_CALL_LIMIT = 1
+PGVECTOR_VECTOR_STORE = "pgvector"
+PINECONE_VECTOR_STORE = "pinecone"
+DEFAULT_PINECONE_TIMEOUT_SECONDS = 10.0
+MAX_PINECONE_TIMEOUT_SECONDS = 60.0
+DEFAULT_PINECONE_MAX_RETRIES = 2
+DEFAULT_PINECONE_SYNC_MAX_ATTEMPTS = 5
 
 
 def load_dotenv_if_available() -> None:
@@ -92,6 +98,19 @@ def env_bounded_int(name: str, default: int, *, minimum: int, maximum: int) -> i
     return value
 
 
+def env_bounded_float(
+    name: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    value = env_float(name, default)
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name} must be between {minimum:g} and {maximum:g}")
+    return value
+
+
 def build_database_url() -> str:
     user = os.getenv("POSTGRES_USER", "civiclens")
     password = os.getenv("POSTGRES_PASSWORD", "change_me")
@@ -140,6 +159,14 @@ class Settings:
     orchestration_mode: str = DIRECT_ORCHESTRATION_MODE
     langgraph_max_steps: int = DEFAULT_LANGGRAPH_MAX_STEPS
     langgraph_tool_call_limit: int = LANGGRAPH_TOOL_CALL_LIMIT
+    vector_store_provider: str = PGVECTOR_VECTOR_STORE
+    pinecone_api_key: str = field(default="", repr=False)
+    pinecone_index_name: str = ""
+    pinecone_index_host: str = ""
+    pinecone_namespace_prefix: str = "civiclens"
+    pinecone_timeout_seconds: float = DEFAULT_PINECONE_TIMEOUT_SECONDS
+    pinecone_max_retries: int = DEFAULT_PINECONE_MAX_RETRIES
+    pinecone_sync_max_attempts: int = DEFAULT_PINECONE_SYNC_MAX_ATTEMPTS
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -205,6 +232,40 @@ class Settings:
         )
         if tool_call_limit != LANGGRAPH_TOOL_CALL_LIMIT:
             raise ValueError("LANGGRAPH_TOOL_CALL_LIMIT must be exactly 1")
+        vector_store_provider = os.getenv(
+            "VECTOR_STORE_PROVIDER",
+            PGVECTOR_VECTOR_STORE,
+        ).strip().lower()
+        if vector_store_provider not in {
+            PGVECTOR_VECTOR_STORE,
+            PINECONE_VECTOR_STORE,
+        }:
+            raise ValueError(
+                "VECTOR_STORE_PROVIDER must be either "
+                f"{PGVECTOR_VECTOR_STORE!r} or {PINECONE_VECTOR_STORE!r}"
+            )
+        pinecone_api_key = os.getenv("PINECONE_API_KEY", "").strip()
+        pinecone_index_name = os.getenv("PINECONE_INDEX_NAME", "").strip()
+        pinecone_index_host = os.getenv("PINECONE_INDEX_HOST", "").strip()
+        pinecone_namespace_prefix = os.getenv(
+            "PINECONE_NAMESPACE_PREFIX",
+            "civiclens",
+        ).strip()
+        if vector_store_provider == PINECONE_VECTOR_STORE:
+            missing = [
+                name
+                for name, value in (
+                    ("PINECONE_API_KEY", pinecone_api_key),
+                    ("PINECONE_INDEX_NAME", pinecone_index_name),
+                    ("PINECONE_INDEX_HOST", pinecone_index_host),
+                    ("PINECONE_NAMESPACE_PREFIX", pinecone_namespace_prefix),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    "Pinecone configuration is incomplete; missing " + ", ".join(missing)
+                )
 
         return cls(
             database_url=os.getenv("DATABASE_URL") or build_database_url(),
@@ -250,6 +311,27 @@ class Settings:
                 maximum=MAX_LANGGRAPH_MAX_STEPS,
             ),
             langgraph_tool_call_limit=tool_call_limit,
+            vector_store_provider=vector_store_provider,
+            pinecone_api_key=pinecone_api_key,
+            pinecone_index_name=pinecone_index_name,
+            pinecone_index_host=pinecone_index_host,
+            pinecone_namespace_prefix=pinecone_namespace_prefix,
+            pinecone_timeout_seconds=env_bounded_float(
+                "PINECONE_TIMEOUT_SECONDS",
+                DEFAULT_PINECONE_TIMEOUT_SECONDS,
+                minimum=0.1,
+                maximum=MAX_PINECONE_TIMEOUT_SECONDS,
+            ),
+            pinecone_max_retries=env_bounded_retry_count(
+                "PINECONE_MAX_RETRIES",
+                DEFAULT_PINECONE_MAX_RETRIES,
+            ),
+            pinecone_sync_max_attempts=env_bounded_int(
+                "PINECONE_SYNC_MAX_ATTEMPTS",
+                DEFAULT_PINECONE_SYNC_MAX_ATTEMPTS,
+                minimum=1,
+                maximum=20,
+            ),
         )
 
     @property

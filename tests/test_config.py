@@ -26,6 +26,14 @@ CONFIG_ENV_VARS = (
     "ORCHESTRATION_MODE",
     "LANGGRAPH_MAX_STEPS",
     "LANGGRAPH_TOOL_CALL_LIMIT",
+    "VECTOR_STORE_PROVIDER",
+    "PINECONE_API_KEY",
+    "PINECONE_INDEX_NAME",
+    "PINECONE_INDEX_HOST",
+    "PINECONE_NAMESPACE_PREFIX",
+    "PINECONE_TIMEOUT_SECONDS",
+    "PINECONE_MAX_RETRIES",
+    "PINECONE_SYNC_MAX_ATTEMPTS",
 )
 
 
@@ -54,6 +62,8 @@ def test_normal_local_defaults_select_one_real_semantic_hybrid_profile(monkeypat
     assert settings.orchestration_mode == "direct"
     assert settings.langgraph_max_steps == 8
     assert settings.langgraph_tool_call_limit == 1
+    assert settings.vector_store_provider == "pgvector"
+    assert settings.pinecone_api_key == ""
 
 
 def test_observability_configuration_is_explicit(monkeypatch):
@@ -150,3 +160,54 @@ def test_answer_retry_limit_is_bounded(monkeypatch):
         assert "between 0 and 5" in str(exc)
     else:
         raise AssertionError("Expected an invalid retry count to fail")
+
+
+def test_pinecone_selection_is_explicit_complete_and_bounded(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.setenv("VECTOR_STORE_PROVIDER", "pinecone")
+    monkeypatch.setenv("PINECONE_API_KEY", "secret")
+    monkeypatch.setenv("PINECONE_INDEX_NAME", "civiclens")
+    monkeypatch.setenv("PINECONE_INDEX_HOST", "civiclens.svc.pinecone.io")
+    monkeypatch.setenv("PINECONE_NAMESPACE_PREFIX", "current-corpus")
+    monkeypatch.setenv("PINECONE_TIMEOUT_SECONDS", "4")
+    monkeypatch.setenv("PINECONE_MAX_RETRIES", "1")
+    monkeypatch.setenv("PINECONE_SYNC_MAX_ATTEMPTS", "3")
+
+    settings = config.Settings.from_env()
+
+    assert settings.vector_store_provider == "pinecone"
+    assert settings.pinecone_index_name == "civiclens"
+    assert settings.pinecone_timeout_seconds == 4.0
+    assert settings.pinecone_max_retries == 1
+    assert settings.pinecone_sync_max_attempts == 3
+    assert "secret" not in repr(settings)
+
+
+def test_pinecone_selection_never_falls_back_when_configuration_is_missing(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.setenv("VECTOR_STORE_PROVIDER", "pinecone")
+    for name in (
+        "PINECONE_API_KEY",
+        "PINECONE_INDEX_NAME",
+        "PINECONE_INDEX_HOST",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ValueError, match="Pinecone configuration is incomplete"):
+        config.Settings.from_env()
+
+
+def test_unknown_vector_provider_is_rejected(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.setenv("VECTOR_STORE_PROVIDER", "automatic")
+
+    with pytest.raises(ValueError, match="VECTOR_STORE_PROVIDER"):
+        config.Settings.from_env()
+
+
+def test_pinecone_timeout_is_bounded(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.setenv("PINECONE_TIMEOUT_SECONDS", "61")
+
+    with pytest.raises(ValueError, match="between 0.1 and 60"):
+        config.Settings.from_env()

@@ -12,7 +12,7 @@ from src.analytics.simple_analytics import (
     execute_analytics_decision,
     fallback_response,
 )
-from src.agents.nodes import WorkflowDependencies
+from src.agents.nodes import RAG_BACKEND_NOT_READY_MESSAGE, WorkflowDependencies
 from src.agents.workflow import run_langgraph_workflow
 from src.common.config import LANGGRAPH_ORCHESTRATION_MODE, Settings
 from src.generation.answer_question import answer_question
@@ -30,10 +30,7 @@ from src.orchestration.route_decision import (
 from src.retrieval.retrieve_context import DEFAULT_TOP_K, validate_top_k
 
 
-BACKEND_NOT_READY_MESSAGE = (
-    "The local PostgreSQL/pgvector backend is not ready. Start Docker with "
-    "`docker compose up -d`, then run ingestion, chunking, and embedding commands."
-)
+BACKEND_NOT_READY_MESSAGE = RAG_BACKEND_NOT_READY_MESSAGE
 
 
 def _direct_outcome(response: dict[str, Any]) -> str:

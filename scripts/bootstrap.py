@@ -58,7 +58,7 @@ def run_bootstrap(
     report("3/4 Building deterministic current chunks...")
     chunks, chunks_path = chunking_runner()
 
-    report("4/4 Creating/upserting the configured embeddings and indexes...")
+    report("4/4 Persisting PostgreSQL metadata and synchronizing dense vectors...")
     chunks_read, chunks_stored, embedding_target = embedding_runner(
         settings=active_settings,
         reindex=False,

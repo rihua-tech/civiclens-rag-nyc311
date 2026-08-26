@@ -1,9 +1,10 @@
-"""Cheap, read-only readiness checks for the local RAG backend."""
+"""Cheap, read-only readiness checks for the configured RAG backend."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from src.chunking.chunk_documents import (
     DEFAULT_CHUNK_OVERLAP,
@@ -12,13 +13,16 @@ from src.chunking.chunk_documents import (
     chunk_documents,
 )
 from src.common.config import Settings
-from src.embeddings.embed_chunks import (
-    fetch_embedding_profiles,
-    validate_stored_embedding_profiles,
-    vector_column_for_spec,
-)
 from src.embeddings.providers import EmbeddingCompatibilityError, EmbeddingSpec
 from src.ingestion.load_documents import load_documents
+from src.vectorstores.base import VectorStore
+from src.vectorstores.factory import create_vector_store
+from src.vectorstores.models import (
+    VectorIdentity,
+    VectorStoreCompatibilityError,
+    VectorStoreConfigurationError,
+    VectorStoreConsistencyError,
+)
 
 
 READINESS_CONNECT_TIMEOUT_SECONDS = 3
@@ -104,12 +108,9 @@ def check_readiness(
     settings: Settings | None = None,
     connection_factory: Callable[..., Any] | None = None,
     corpus_identity: CorpusIdentity | None = None,
+    vector_store: VectorStore | None = None,
 ) -> ReadinessResult:
-    """Check configuration, schema, and the complete current embedded corpus.
-
-    This check never loads an embedding model, performs retrieval/generation,
-    calls OpenAI, or mutates PostgreSQL.
-    """
+    """Validate canonical PostgreSQL plus the selected vector provider, read-only."""
 
     try:
         active_settings = settings or Settings.from_env()
@@ -121,7 +122,16 @@ def check_readiness(
             model=active_settings.embedding_model,
             dimension=active_settings.embedding_dimension,
         )
-        vector_column = vector_column_for_spec(active_spec)
+        vector_identities = tuple(
+            VectorIdentity(
+                chunk_id=item.chunk_id,
+                document_id=item.document_id,
+                content_hash=item.content_hash,
+                document_content_hash=item.document_content_hash,
+                chunking_config_hash=item.chunking_config_hash,
+            )
+            for item in current_corpus.chunks
+        )
     except Exception:
         return ReadinessResult(
             ready=False,
@@ -149,21 +159,6 @@ def check_readiness(
                         ready=False,
                         code="schema_unavailable",
                         message="Required local RAG schema is unavailable.",
-                    )
-
-                try:
-                    validate_stored_embedding_profiles(
-                        fetch_embedding_profiles(cursor),
-                        active_spec,
-                    )
-                except EmbeddingCompatibilityError:
-                    return ReadinessResult(
-                        ready=False,
-                        code="embedding_profile_incompatible",
-                        message=(
-                            "Stored chunks are incompatible with the configured "
-                            "embedding profile."
-                        ),
                     )
 
                 expected_documents = {
@@ -208,7 +203,7 @@ def check_readiness(
                     for item in current_corpus.chunks
                 }
                 cursor.execute(
-                    f"""
+                    """
                     SELECT
                         c.chunk_id,
                         c.document_id,
@@ -217,23 +212,13 @@ def check_readiness(
                         c.chunking_config_hash
                     FROM chunks AS c
                     INNER JOIN documents AS d ON d.document_id = c.document_id
-                    WHERE c.{vector_column} IS NOT NULL
-                      AND vector_dims(c.{vector_column}) = %s
-                      AND c.embedding_provider = %s
-                      AND c.embedding_model = %s
-                      AND c.embedding_dimension = %s
+                    WHERE c.search_vector IS NOT NULL
                       AND c.content_hash IS NOT NULL
                       AND c.document_content_hash = d.content_hash
                       AND c.chunking_config_hash = d.chunking_config_hash
                       AND c.chunk_id = ANY(%s)
                     """,
-                    (
-                        active_spec.dimension,
-                        active_spec.provider,
-                        active_spec.model,
-                        active_spec.dimension,
-                        list(expected_chunks),
-                    ),
+                    (list(expected_chunks),),
                 )
                 stored_chunks = {
                     str(chunk_id): (
@@ -254,7 +239,7 @@ def check_readiness(
         return ReadinessResult(
             ready=False,
             code="backend_unavailable",
-            message="Local PostgreSQL/pgvector backend is unavailable.",
+            message="Canonical PostgreSQL metadata/lexical backend is unavailable.",
         )
 
     if set(stored_chunks) != set(expected_chunks):
@@ -270,8 +255,47 @@ def check_readiness(
             message="Stored RAG corpus does not match the current knowledge sources.",
         )
 
+    try:
+        def bounded_pg_connect(database_url: str):
+            return connector(
+                database_url,
+                connect_timeout=READINESS_CONNECT_TIMEOUT_SECONDS,
+            )
+
+        active_store = vector_store or create_vector_store(
+            active_settings,
+            active_spec,
+            vector_identities,
+            pg_connection_factory=bounded_pg_connect,
+        )
+        active_store.verify(vector_identities)
+    except EmbeddingCompatibilityError:
+        return ReadinessResult(
+            ready=False,
+            code="embedding_profile_incompatible",
+            message="Stored vectors are incompatible with the embedding profile.",
+        )
+    except (VectorStoreConfigurationError, VectorStoreCompatibilityError):
+        return ReadinessResult(
+            ready=False,
+            code="vector_store_incompatible",
+            message="Configured dense-vector backend is incompatible or unavailable.",
+        )
+    except VectorStoreConsistencyError:
+        return ReadinessResult(
+            ready=False,
+            code="vector_store_incomplete",
+            message="Configured dense-vector backend is incomplete for this corpus.",
+        )
+    except Exception:
+        return ReadinessResult(
+            ready=False,
+            code="backend_unavailable",
+            message="Configured RAG backend is unavailable.",
+        )
+
     return ReadinessResult(
         ready=True,
         code="ready",
-        message="Local RAG backend is ready.",
+        message="Configured RAG backend is ready.",
     )

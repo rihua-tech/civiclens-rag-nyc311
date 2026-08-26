@@ -34,7 +34,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/README.md",
       "source_version": "Issue 8 curated corpus",
       "retrieved_at": null,
-      "content_hash": "sha256:16d415c1946ee89b0f40cee0240e8620474dc00f58884f8995c896162d8f9d19"
+      "content_hash": "sha256:ba458906c345035a3b9658d3cd261f1a7877c787384d91da16dfe03c5a611083"
     },
     {
       "source_name": "CivicLens Data Sources",
@@ -54,7 +54,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/architecture.md",
       "source_version": "Issue 8 curated corpus",
       "retrieved_at": null,
-      "content_hash": "sha256:e810e9db273e46b07959c0ea125358c1770c562fbe974d3f636aef7faa989f4e"
+      "content_hash": "sha256:cce68e564bbf7ecd47452c41c5a6655179989c225e54d14b87e68091e4ed8306"
     },
     {
       "source_name": "CivicLens RAG Design",
@@ -64,7 +64,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/rag-design.md",
       "source_version": "Issue 8 curated corpus",
       "retrieved_at": null,
-      "content_hash": "sha256:69f471e186e058acd485f75dc734e3dc21fe6b0185e64beae035d213b5f4ceff"
+      "content_hash": "sha256:a3ca626b8c2d9bcddb72e0e375f3d5d417aa2486587a31c212f4acb108438f59"
     },
     {
       "source_name": "CivicLens Evaluation Notes",
