@@ -58,9 +58,9 @@ flowchart TD
     api --> orchestrator["Shared question orchestration"]
     orchestrator --> mode["direct default<br/>or LangGraph opt-in"]
     mode --> direct["Direct execution"]
-    mode --> graph["Bounded graph<br/>validate → route → execute → validate → respond"]
+    mode --> boundedGraph["Bounded graph<br/>validate → route → execute → validate → respond"]
     direct --> routeDecision["Shared deterministic route decision"]
-    graph --> routeDecision
+    boundedGraph --> routeDecision
     routeDecision --> semantic
     routeDecision --> analyticsRouter["Predefined analytics router"]
     analyticsRouter --> analyticsRegistry["Fixed typed tool registry"]
