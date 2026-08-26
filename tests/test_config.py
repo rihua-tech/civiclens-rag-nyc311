@@ -34,6 +34,7 @@ CONFIG_ENV_VARS = (
     "PINECONE_TIMEOUT_SECONDS",
     "PINECONE_MAX_RETRIES",
     "PINECONE_SYNC_MAX_ATTEMPTS",
+    "CIVICLENS_CORS_ALLOWED_ORIGINS",
 )
 
 
@@ -64,6 +65,13 @@ def test_normal_local_defaults_select_one_real_semantic_hybrid_profile(monkeypat
     assert settings.langgraph_tool_call_limit == 1
     assert settings.vector_store_provider == "pgvector"
     assert settings.pinecone_api_key == ""
+
+
+def test_default_cors_configuration_allows_only_local_nextjs(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.delenv("CIVICLENS_CORS_ALLOWED_ORIGINS", raising=False)
+
+    assert config.cors_allowed_origins() == ("http://localhost:3000",)
 
 
 def test_observability_configuration_is_explicit(monkeypatch):

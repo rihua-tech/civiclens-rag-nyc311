@@ -75,6 +75,10 @@ def test_api_uses_existing_database_and_explicit_offline_demo_profile():
     } == expected_values
     assert "OPENAI_API_KEY" not in environment
     assert not any(key.startswith("POSTGRES_") for key in environment)
+    assert environment["CIVICLENS_CORS_ALLOWED_ORIGINS"] == {
+        "key": "CIVICLENS_CORS_ALLOWED_ORIGINS",
+        "sync": False,
+    }
 
 
 def test_ui_uses_generated_api_https_url_without_hardcoded_render_hostname():

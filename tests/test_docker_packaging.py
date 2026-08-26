@@ -54,6 +54,15 @@ def test_compose_reranker_default_matches_project_configuration():
     assert "RERANKING_ENABLED: ${RERANKING_ENABLED:-false}" in compose
 
 
+def test_compose_exposes_only_the_local_nextjs_origin_by_default():
+    compose = _read("docker-compose.yml")
+
+    assert (
+        "CIVICLENS_CORS_ALLOWED_ORIGINS: "
+        "${CIVICLENS_CORS_ALLOWED_ORIGINS:-http://localhost:3000}" in compose
+    )
+
+
 def test_images_bind_public_interfaces_and_do_not_bake_secrets():
     api_dockerfile = _read("Dockerfile.api")
     ui_dockerfile = _read("Dockerfile.ui")

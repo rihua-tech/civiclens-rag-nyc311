@@ -29,14 +29,17 @@ flowchart TD
     rrf --> reranker["Optional bounded cross-encoder reranker"]
     reranker --> answer["Grounded answer generation<br/>+ citation validation"]
 
-    question --> ui["Streamlit UI<br/>container or host"]
+    question --> browser["Browser"]
+    browser --> nextjs["Next.js client<br/>product UI / Vercel target"]
+    nextjs --> api
+    question --> ui["Streamlit UI<br/>engineering / debug"]
     ui --> api["FastAPI<br/>/api/v1/answer"]
     api --> orchestrator["Shared question orchestration"]
     orchestrator --> mode["direct default<br/>or LangGraph opt-in"]
     mode --> direct["Direct execution"]
-    mode --> graph["Bounded graph<br/>validate -> route -> execute -> validate -> respond"]
+    mode --> boundedGraph["Bounded graph<br/>validate → route → execute → validate → respond"]
     direct --> routeDecision["Shared deterministic route decision"]
-    graph --> routeDecision
+    boundedGraph --> routeDecision
     routeDecision --> dense
     routeDecision --> analyticsRouter["Predefined analytics router"]
     analyticsRouter --> analyticsRegistry["Fixed typed tool registry"]
@@ -94,6 +97,16 @@ ADR 001 selects LangChain Core over LlamaIndex Core for the only Issue 18 framew
 
 FastAPI is a thin, provider-neutral HTTP boundary: it validates requests, calls the shared orchestration layer, serializes allow-listed answer/source fields, and sanitizes errors. It does not duplicate retrieval, analytics, grounding, or citation logic. `/health` is dependency-free liveness; `/ready` always checks PostgreSQL metadata/lexical state and read-only compatibility/completeness of the selected dense-vector provider without loading models, generating answers, or mutating data. Pinecone checks use configured bounded SDK timeouts/retries.
 
+## Next.js Portfolio Product Boundary
+
+Issue 19 adds a dedicated `frontend/` Next.js and TypeScript application as the recruiter-facing product interface. The hydrated browser client sends `POST /api/v1/answer` directly to the configured Render FastAPI origin; there is no Next.js route handler, Server Action, Vercel AI SDK, JavaScript RAG implementation, or server-side answer proxy. `NEXT_PUBLIC_CIVICLENS_API_BASE_URL` contains only the public FastAPI origin. No database URL, provider key, model configuration, or other backend secret is exposed through browser configuration.
+
+The frontend owns presentation and one small typed HTTP client. Zod validates successful answer responses and sanitized error responses at runtime before React renders them. The UI distinguishes answered RAG, answered approved analytics, safe abstention, and operational failure. It displays only backend-returned answer text and provenance, preserves citation numbers without renumbering, keeps optional chunk/query IDs secondary, and never reconstructs internal analytics rows, retrieval chunks, citations, or source URLs.
+
+Because the answer request crosses browser origins, FastAPI uses narrowly scoped CORS middleware. `CIVICLENS_CORS_ALLOWED_ORIGINS` is a comma-separated server-side allowlist with a localhost-only development default. Wildcards, credentials, URL paths, and non-HTTP(S) origins are rejected. The middleware allows only the `POST` method and `Content-Type` request header needed by the frontend, with credentials disabled. CORS controls browser response access; it is not authentication or production authorization.
+
+The frontend is designed for Vercel, but a hosted deployment is accepted only after a real stable production origin exists, that exact origin is added to the Render CORS setting, FastAPI is restarted/redeployed, and browser smoke tests pass. Until then, the repository claims only the locally validated implementation and production build. Streamlit remains available as the engineering, validation, and debugging interface through the same FastAPI contract.
+
 ## Local Container Boundary
 
 Docker Compose packages three local services: `ui` (Streamlit), `api` (FastAPI), and `postgres` (PostgreSQL/pgvector). Service-to-service traffic uses Compose DNS (`ui` to `api:8000`, API to `postgres:5432`), while host ports remain configurable. API container health uses `/health`, not `/ready`; therefore the UI and API can run while the corpus is still unprepared and `/ready` correctly reports `503`.
@@ -117,10 +130,16 @@ and dated evidence are recorded in `docs/deployment.md`. This verifies one
 cloud deployment path; it does not establish high availability, autoscaling,
 production authentication, backups, an SLA, or a production NYC service.
 
+Issue 19 keeps that Render API and database path unchanged. Once configured,
+the Vercel-hosted Next.js client is an additional public browser consumer of
+the same Render FastAPI origin; it does not replace the dated Streamlit proof
+or move any retrieval, analytics, generation, citation, or data responsibility
+to Vercel.
+
 ## Observability and Feedback Boundary
 
 Shared orchestration, not FastAPI, creates one `query_id` when `OBSERVABILITY_ENABLED=true`. The same ID is returned with the answer, stored on the existing `queries` row, attached to allow-listed `retrieval_results` rows, and required by feedback. PostgreSQL writes are parameterized and logging failures are isolated from otherwise successful answers. The feedback route delegates query validation and persistence to the observability service.
 
 Only execution metadata, existing retrieval scores/ranks, stable source references, and bounded feedback are stored. Issue 17 adds allow-listed orchestration mode, step count, tool-call count, and outcome fields; it does not persist graph state or planning traces. Raw question and answer text, retrieved chunk text, vectors, secrets, authorization data, environment configuration, hidden reasoning, and provider payloads are excluded. Ordered checksummed SQL files migrate existing tables without an ORM or database reset.
 
-This local-first architecture includes both Docker Compose and one non-production Render portfolio deployment. It is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. The optional bounded graph is not an unrestricted autonomous agent. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, production cloud operations, streaming, rate limiting, and monitoring remain out of the demonstrated scope.
+This local-first architecture includes Docker Compose, a locally validated Next.js product UI, and one dated non-production Render portfolio deployment. A Vercel deployment is not claimed until separately completed and verified. The system is not connected to live NYC 311 data, OpenAI is optional and disabled by default, and the analytics path remains predefined rather than production text-to-SQL. The optional bounded graph is not an unrestricted autonomous agent. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, authentication, production cloud operations, streaming, rate limiting, and monitoring remain out of the demonstrated scope.

@@ -11,3 +11,10 @@ data/processed/*
 data/evaluation/results/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+frontend/node_modules/
+frontend/.next/
+frontend/coverage/
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+frontend/.env*
+!frontend/.env.example

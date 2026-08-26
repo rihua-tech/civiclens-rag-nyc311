@@ -34,6 +34,8 @@ DEFAULT_PINECONE_TIMEOUT_SECONDS = 10.0
 MAX_PINECONE_TIMEOUT_SECONDS = 60.0
 DEFAULT_PINECONE_MAX_RETRIES = 2
 DEFAULT_PINECONE_SYNC_MAX_ATTEMPTS = 5
+CORS_ALLOWED_ORIGINS_ENV = "CIVICLENS_CORS_ALLOWED_ORIGINS"
+DEFAULT_CORS_ALLOWED_ORIGINS = ("http://localhost:3000",)
 
 
 def load_dotenv_if_available() -> None:
@@ -109,6 +111,60 @@ def env_bounded_float(
     if not minimum <= value <= maximum:
         raise ValueError(f"{name} must be between {minimum:g} and {maximum:g}")
     return value
+
+
+def cors_allowed_origins(raw_value: str | None = None) -> tuple[str, ...]:
+    """Return a normalized, explicit browser-origin allowlist.
+
+    A localhost-only default supports the Issue 19 development client without
+    granting cross-origin access to arbitrary sites. Production origins must be
+    supplied explicitly through ``CIVICLENS_CORS_ALLOWED_ORIGINS``.
+    """
+
+    if raw_value is None:
+        load_dotenv_if_available()
+        configured = os.getenv(CORS_ALLOWED_ORIGINS_ENV)
+    else:
+        configured = raw_value
+    if configured is None:
+        return DEFAULT_CORS_ALLOWED_ORIGINS
+
+    origins: list[str] = []
+    for candidate in configured.split(","):
+        origin = candidate.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            raise ValueError(
+                f"{CORS_ALLOWED_ORIGINS_ENV} must not contain the wildcard origin"
+            )
+
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                f"{CORS_ALLOWED_ORIGINS_ENV} must contain only HTTP(S) origins"
+            )
+
+        try:
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError(
+                f"{CORS_ALLOWED_ORIGINS_ENV} contains an invalid port"
+            ) from exc
+
+        normalized = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+        if normalized not in origins:
+            origins.append(normalized)
+
+    return tuple(origins)
 
 
 def build_database_url() -> str:

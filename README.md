@@ -4,7 +4,7 @@
 
 ## What is CivicLens?
 
-CivicLens is a non-production AI Engineering and RAG Engineering portfolio project built on a curated NYC 311 knowledge corpus. It combines section-aware ingestion, semantic and PostgreSQL lexical retrieval, Reciprocal Rank Fusion (RRF), grounded generation, and validated citations behind FastAPI and Streamlit; PostgreSQL + pgvector and native CivicLens RAG remain the defaults. The repository also demonstrates bounded analytics tools and orchestration, reproducible evaluation, offline-safe CI, Docker Compose, and dated cloud deployment proof on top of a strong data-engineering foundation.
+CivicLens is a non-production AI Engineering and RAG Engineering portfolio project built on a curated NYC 311 knowledge corpus. It combines section-aware ingestion, semantic and PostgreSQL lexical retrieval, Reciprocal Rank Fusion (RRF), grounded generation, and validated citations behind FastAPI. A recruiter-facing Next.js product UI and the existing Streamlit engineering UI both consume that public contract; PostgreSQL + pgvector and native CivicLens RAG remain the defaults. The repository also demonstrates bounded analytics tools and orchestration, reproducible evaluation, offline-safe CI, Docker Compose, and dated cloud deployment proof on top of a strong data-engineering foundation.
 
 ## Proof at a Glance
 
@@ -14,8 +14,8 @@ CivicLens is a non-production AI Engineering and RAG Engineering portfolio proje
 - **Grounded responses:** answer generation receives allow-listed evidence, while application-owned validation rejects fabricated citations and safely abstains when evidence is insufficient.
 - **Controlled AI workflows:** four typed, allowlisted, read-only sample analytics tools share the FastAPI boundary with document RAG; direct orchestration is default and bounded LangGraph is optional.
 - **Portable without replacement:** pgvector is the default dense store, Pinecone is opt-in, and LangChain Core is a thin optional document/retriever adapter over native CivicLens retrieval.
-- **Runnable application:** Streamlit consumes the versioned FastAPI contract; Docker Compose packages the UI, API, and PostgreSQL/pgvector with rerun-safe bootstrap and read-only readiness checks.
-- **Auditable delivery:** GitHub Actions isolates core/native, bounded LangGraph, mocked Pinecone, and LangChain Core paths without paid APIs or live external services.
+- **Runnable application:** Next.js provides the recruiter-facing product experience, while Streamlit remains the engineering/debug UI; both consume the versioned FastAPI contract.
+- **Auditable delivery:** GitHub Actions isolates core/native, bounded LangGraph, mocked Pinecone, LangChain Core, and frontend quality paths without paid APIs or live application services.
 
 ## Architecture
 
@@ -35,7 +35,9 @@ flowchart TD
     fastapi["FastAPI<br/>application boundary"]
     orchestration["Direct orchestration — default<br/>Bounded LangGraph — optional"]
     analytics["Typed allowlisted analytics tools<br/>separate bounded route"]
-    streamlit["Streamlit<br/>current UI"]
+    browser["Browser"]
+    nextjs["Next.js client<br/>product UI / Vercel target"]
+    streamlit["Streamlit<br/>engineering / debug UI"]
     langchain["LangChain Core adapter<br/>optional compatibility only"]
 
     sources --> ingestion
@@ -56,6 +58,8 @@ flowchart TD
     rerank --> grounded
     grounded --> fastapi
     analytics --> fastapi
+    browser --> nextjs
+    nextjs --> fastapi
     streamlit --> fastapi
     rerank -.-> langchain
 ```
@@ -70,11 +74,11 @@ PostgreSQL remains authoritative even when Pinecone supplies dense candidates. T
 | Retrieval | CivicLens-generated embeddings; pgvector semantic search; PostgreSQL full-text search; deterministic RRF; optional bounded reranking |
 | Grounding and safety | Context-only generation, stable chunk citations, application-owned provenance reconstruction, citation validation, and safe no-answer behavior |
 | Analytics tools | Four fixed CSV-backed tools with strict typed inputs, immutable allowlisting, bounded results, read-only execution, and explicit sample-data provenance |
-| Application boundary | FastAPI request/response validation, sanitized backend errors, Streamlit HTTP client, liveness/readiness, and an unchanged provider-neutral answer contract |
+| Application boundary | FastAPI validation and sanitized errors; direct typed Next.js browser client; Streamlit engineering client; liveness/readiness; unchanged provider-neutral answer contract |
 | Orchestration | Dependency-free direct mode by default; optional acyclic LangGraph workflow with bounded steps and one analytics-tool call maximum |
 | Portability | PostgreSQL + pgvector and native CivicLens RAG by default; optional Pinecone dense retrieval and optional LangChain Core retriever/document compatibility |
 | Observability | Opt-in privacy-conscious query/retrieval metadata and bounded feedback without persisting raw questions, answers, chunks, vectors, or credentials |
-| Delivery | Docker Compose, ordered migrations, rerun-safe bootstrap, dated Render deployment proof, pytest, Ruff, compile checks, and offline-safe CI |
+| Delivery | Docker Compose, ordered migrations, rerun-safe bootstrap, dated Render proof, pytest, Vitest, Ruff, ESLint, TypeScript, production builds, and offline-safe CI |
 
 ## Demo / Screenshots
 
@@ -115,6 +119,7 @@ docker compose run --rm api python -m scripts.bootstrap
 - Streamlit: <http://localhost:8501>
 - FastAPI: <http://localhost:8000>
 - API documentation: <http://localhost:8000/docs>
+- Next.js product UI: <http://localhost:3000> after following the focused [frontend setup](frontend/README.md)
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/answer \
@@ -142,11 +147,11 @@ These results are a small portfolio benchmark, not evidence of production reliab
 |---|---|
 | AI / RAG | Python, Sentence Transformers, optional OpenAI, optional bounded LangGraph, optional LangChain Core |
 | Retrieval | PostgreSQL 16, pgvector, PostgreSQL full-text search, RRF, optional cross-encoder reranking, optional Pinecone |
-| Application | FastAPI, Pydantic, Uvicorn, Streamlit |
+| Application | FastAPI, Pydantic, Uvicorn, Next.js, TypeScript, Zod, Streamlit |
 | Data / operations | SQL migrations, manifest-based ingestion, Docker Compose, Render Blueprint |
-| Quality | pytest, Ruff, compileall, GitHub Actions |
+| Quality | pytest, Vitest, Testing Library, Ruff, ESLint, TypeScript, compileall, GitHub Actions |
 
-GitHub Actions validates four independent paths: **core/native** proves the Issue 18 optional packages are absent, then runs pytest, Ruff, and compileall; **bounded LangGraph** runs its routing, workflow, API, and safety suite; **optional Pinecone** installs the real SDK but uses mocked/fake service calls; and **optional LangChain Core** installs the selected real framework package for adapter tests. Required CI uses no paid APIs, model downloads, live Pinecone calls, or other external services.
+GitHub Actions validates five independent paths: **core/native** proves the Issue 18 optional packages are absent, then runs pytest, Ruff, and compileall; **bounded LangGraph** runs its routing, workflow, API, and safety suite; **optional Pinecone** installs the real SDK but uses mocked/fake service calls; **optional LangChain Core** installs the selected real framework package for adapter tests; and **frontend** runs lockfile installation, ESLint, TypeScript, mocked component/client tests, and a production Next.js build. Required tests use no paid APIs, model downloads, live Render/Vercel/Pinecone calls, or other external application services.
 
 ## Limitations
 
@@ -158,7 +163,7 @@ GitHub Actions validates four independent paths: **core/native** proves the Issu
 - There is no production authentication, authorization, high availability, autoscaling, disaster recovery, rate limiting, hosted/production monitoring, retention guarantee, SLA, or production NYC service claim.
 - The bounded LangGraph path is not a fully autonomous agent: it has no planner, arbitrary tools, repeated tool loop, conversational memory, or hidden reasoning trace.
 - The evaluation fixture is small and includes documented abstention/routing failures; it does not establish production answer quality or reliability.
-- Streamlit is the current UI. The Next.js/Vercel portfolio frontend in [Issue 19](https://github.com/rihua-tech/civiclens-rag-nyc311/issues/38) is future work and is not implemented.
+- The Next.js product UI is implemented for direct browser-to-FastAPI use and targets Vercel, but this branch does not claim a verified Vercel deployment or permanent demo URL. Streamlit remains the engineering, validation, and debugging UI.
 
 ## Deep-Dive Documentation
 
@@ -168,6 +173,7 @@ GitHub Actions validates four independent paths: **core/native** proves the Issu
 - [Evaluation report](docs/evaluation-report.md) — approved measured baseline and known failed cases
 - [Evaluation methodology](docs/evaluation-notes.md) — fixture, metrics, denominators, profiles, and commands
 - [Deployment proof](docs/deployment.md) — dated Render evidence, reproduction notes, costs, and teardown limitations
+- [Frontend setup](frontend/README.md) — local Next.js workflow, direct API boundary, quality commands, and Vercel configuration order
 - [Framework ADR](docs/adr/001-rag-framework-selection.md) — LangChain Core versus LlamaIndex Core decision
 - [Configuration](.env.example) — default and optional server-side settings
 
