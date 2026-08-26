@@ -38,3 +38,10 @@ pgdata/
 *review*.txt
 Issue_*_review*
 
+frontend/node_modules/
+frontend/.next/
+frontend/coverage/
+frontend/*.tsbuildinfo
+frontend/.env*
+!frontend/.env.example
+

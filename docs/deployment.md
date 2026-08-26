@@ -70,6 +70,9 @@ must be relinked to `main` after the reviewed Issue 15 changes are merged.
 Automatic deploys are disabled. The API uses deterministic 1536-dimensional
 embeddings, hybrid retrieval, disabled reranking, local deterministic answers,
 disabled OpenAI paths, and disabled observability. No OpenAI key is needed.
+`CIVICLENS_CORS_ALLOWED_ORIGINS` is a Blueprint `sync: false` value because the
+exact stable Vercel production origin must be supplied through Render rather
+than guessed or committed.
 
 The UI receives the generated HTTPS API URL through the API service's
 `RENDER_EXTERNAL_URL`; no `onrender.com` hostname is hardcoded. Its request
@@ -152,6 +155,48 @@ The following secret-free checks were completed against the existing
 The public response fields were limited to the provider-neutral answer
 contract. No retrieved chunk text, provider diagnostics, database URL,
 credentials, or raw provider payload appeared. OpenAI was disabled throughout.
+
+## Issue 19 Vercel deployment checkpoint
+
+The repository now contains a locally validated Next.js product frontend under
+`frontend/`. Its answer path is a direct browser request to the existing Render
+FastAPI service:
+
+```text
+Browser running Next.js -> Render FastAPI -> CivicLens orchestration
+                        -> PostgreSQL/pgvector -> answer + provenance
+```
+
+There is no Next.js API proxy, Server Action, database client, provider client,
+or JavaScript RAG path. Vercel deployment and hosted browser validation remain
+an explicit manual checkpoint; this documentation does not invent a Vercel URL
+or claim that the frontend is already hosted.
+
+Complete the checkpoint in this order:
+
+1. Review and publish the Issue 19 branch through the repository's normal human
+   workflow.
+2. In an authenticated Vercel account, create/select the frontend project with
+   `frontend/` as its root directory.
+3. Set `NEXT_PUBLIC_CIVICLENS_API_BASE_URL` to the existing public Render API
+   origin, with no path suffix. This value is public configuration, not a
+   secret.
+4. Complete a production deployment and record its exact stable HTTPS origin.
+5. In Render, set `CIVICLENS_CORS_ALLOWED_ORIGINS` to an explicit comma-separated
+   allowlist containing that exact Vercel origin and only any still-approved
+   local development origins. Never use `*`.
+6. Redeploy or restart `civiclens-api` so the new server-side CORS setting is
+   active. Startup must complete the normal corpus bootstrap before Uvicorn.
+7. Verify `/health`, `/ready`, an approved CORS preflight, a cited documentation
+   answer, an approved analytics answer, and a zero-source abstention from the
+   hosted browser on desktop and mobile.
+8. Only after those checks succeed, capture dated, secret-free evidence and add
+   a real demo URL or proof reference to the recruiter README.
+
+If README or architecture content changes while completing this checkpoint,
+refresh the supported manifest hashes and re-bootstrap the Render corpus before
+the final hosted evidence. Preview origins are not wildcarded; add a specific
+preview origin temporarily only when it is deliberately being tested.
 
 ## Manual Blueprint deployment
 

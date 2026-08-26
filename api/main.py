@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.errors import SafeAPIError
@@ -11,6 +12,7 @@ from api.models import ErrorBody, ErrorResponse
 from api.routes.answers import router as answers_router
 from api.routes.feedback import router as feedback_router
 from api.routes.system import router as system_router
+from src.common.config import cors_allowed_origins
 
 
 def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
@@ -18,12 +20,27 @@ def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=payload.model_dump())
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    allowed_origins: tuple[str, ...] | None = None,
+) -> FastAPI:
     application = FastAPI(
         title="CivicLens RAG API",
         version="1.0.0",
         description="Local versioned API for CivicLens question orchestration.",
     )
+
+    configured_origins = (
+        cors_allowed_origins() if allowed_origins is None else allowed_origins
+    )
+    if configured_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(configured_origins),
+            allow_credentials=False,
+            allow_methods=["POST"],
+            allow_headers=["Content-Type"],
+        )
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(
