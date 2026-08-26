@@ -2,417 +2,173 @@
 
 [![CI](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml/badge.svg)](https://github.com/rihua-tech/civiclens-rag-nyc311/actions/workflows/ci.yml)
 
-CivicLens RAG is a local-first AI Data Engineering / Hybrid RAG portfolio project that extends an NYC 311 Lakehouse concept with a curated NYC 311 field guide, section-aware cited document search, real local semantic embeddings, PostgreSQL semantic + lexical retrieval, simple predefined analytics summaries, and containerized Streamlit/FastAPI application interfaces.
+## What is CivicLens?
 
-The project is designed to show how an operational data platform can pair documentation retrieval with lightweight analytics answers while keeping outputs grounded, cited, and honest about current limitations.
+CivicLens is a non-production AI Engineering and RAG Engineering portfolio project built on a curated NYC 311 knowledge corpus. It combines section-aware ingestion, semantic and PostgreSQL lexical retrieval, Reciprocal Rank Fusion (RRF), grounded generation, and validated citations behind FastAPI and Streamlit; PostgreSQL + pgvector and native CivicLens RAG remain the defaults. The repository also demonstrates bounded analytics tools and orchestration, reproducible evaluation, offline-safe CI, Docker Compose, and dated cloud deployment proof on top of a strong data-engineering foundation.
 
-## Quick Proof Summary
+## Proof at a Glance
 
-- Docker Compose runs Streamlit, FastAPI, and PostgreSQL/pgvector, with one rerun-safe bootstrap workflow for migrations and the current retrieval corpus.
-- Streamlit calls the versioned FastAPI contract, while FastAPI delegates to the shared question orchestration layer for cited RAG and sample analytics answers.
-- PostgreSQL + pgvector stores semantic document vectors while PostgreSQL full-text search supplies lexical candidates.
-- Reciprocal Rank Fusion combines dense and lexical results, with an optional bounded local reranker.
-- A version-controlled source manifest validates provenance and normalized content hashes.
-- Markdown chunks preserve section titles, heading paths, stable IDs, and source metadata.
-- Issue 10 provides a versioned 24-question RAG evaluation with Recall@5, MRR, routing, citation, and safe no-answer metrics.
-- Issue 11 keeps local answers as the default and isolates one opt-in OpenAI answer provider behind grounded structured output and application-controlled citation validation.
-- Issue 13 adds opt-in privacy-conscious execution metadata, stable `query_id` tracing, feedback, and ordered SQL migrations without storing raw questions or answers.
-- Issue 16 exposes the four predefined sample analytics capabilities through strict typed, allowlisted, read-only tools with fixed IDs, bounded results, and source provenance.
-- Issue 17 keeps direct orchestration as the default and adds one optional bounded LangGraph workflow that reuses the same deterministic route decision, RAG pipeline, and safe tool registry.
-- Issue 18 keeps PostgreSQL + pgvector + native CivicLens RAG as the default, adds an optional Pinecone dense-vector adapter, and exposes one optional LangChain Core retriever compatibility wrapper.
-- A dated Render deployment proves the Streamlit -> FastAPI -> PostgreSQL/pgvector path with deterministic embeddings, a cited answer, and safe abstention.
-- GitHub Actions runs offline-safe pytest and compileall checks.
-- Local Docker Compose and a non-production Render portfolio demo are available; there is no production deployment, live NYC 311 data, default OpenAI usage, or production text-to-SQL claim.
+- **Traceable knowledge:** a version-controlled source manifest validates normalized content hashes, provenance, stable document IDs, and stable section-aware chunk IDs.
+- **Advanced retrieval:** dense semantic candidates and PostgreSQL full-text candidates are fused with deterministic RRF, with optional bounded cross-encoder reranking.
+- **Measured behavior:** on the approved 14-question real-local retrieval subset, hybrid search reached `0.8393` Recall@5 and `0.9286` expected-source retrieval.
+- **Grounded responses:** answer generation receives allow-listed evidence, while application-owned validation rejects fabricated citations and safely abstains when evidence is insufficient.
+- **Controlled AI workflows:** four typed, allowlisted, read-only sample analytics tools share the FastAPI boundary with document RAG; direct orchestration is default and bounded LangGraph is optional.
+- **Portable without replacement:** pgvector is the default dense store, Pinecone is opt-in, and LangChain Core is a thin optional document/retriever adapter over native CivicLens retrieval.
+- **Runnable application:** Streamlit consumes the versioned FastAPI contract; Docker Compose packages the UI, API, and PostgreSQL/pgvector with rerun-safe bootstrap and read-only readiness checks.
+- **Auditable delivery:** GitHub Actions isolates core/native, bounded LangGraph, mocked Pinecone, and LangChain Core paths without paid APIs or live external services.
 
-## Why This Project Matters
-
-This project demonstrates:
-
-- Data engineering foundation: ingestion, chunking, SQL schema, Dockerized PostgreSQL, and local validation.
-- RAG system design: curated documents become searchable chunks with metadata and citations.
-- Hybrid retrieval: PostgreSQL + pgvector semantic search and PostgreSQL full-text search are fused deterministically with RRF.
-- Hybrid analytics pattern: documentation questions use vector retrieval, while analytics questions use predefined sample outputs.
-- Evaluation and safety: tests check citations, retrieval behavior, analytics routing, and safe no-answer behavior.
-
-## Hybrid RAG Architecture
+## Architecture
 
 ```mermaid
 flowchart TD
-    question["Question"]
-    docs["NYC 311 documentation<br/>Data dictionary notes<br/>Runbooks"]
-    sampleAnalytics["Sample analytics CSV outputs"]
+    sources["Curated NYC 311 knowledge<br/>and CivicLens runbooks"]
+    ingestion["Manifest validation<br/>and section-aware chunking"]
+    postgres["PostgreSQL authority<br/>text, metadata, provenance, hashes"]
+    embeddings["CivicLens embeddings<br/>and dense-provider selection"]
+    pgvector["pgvector<br/>default dense store"]
+    pinecone["Pinecone<br/>optional dense store"]
+    dense["Semantic candidates<br/>PostgreSQL hydration and validation"]
+    lexical["PostgreSQL<br/>lexical candidates"]
+    rrf["Reciprocal Rank Fusion"]
+    rerank["Optional bounded reranking"]
+    grounded["Grounded generation<br/>and citation validation"]
+    fastapi["FastAPI<br/>application boundary"]
+    orchestration["Direct orchestration — default<br/>Bounded LangGraph — optional"]
+    analytics["Typed allowlisted analytics tools<br/>separate bounded route"]
+    streamlit["Streamlit<br/>current UI"]
+    langchain["LangChain Core adapter<br/>optional compatibility only"]
 
-    docs --> ingestion["Document ingestion"]
-    ingestion --> chunking["Text cleaning and chunking"]
-    chunking --> embeddings["Local Sentence Transformers embeddings"]
-    embeddings --> pgvector["PostgreSQL + pgvector"]
-    pgvector --> semantic["Dense semantic retrieval"]
-    pgvector --> lexical["PostgreSQL full-text retrieval"]
-    semantic --> fusion["Reciprocal Rank Fusion"]
-    lexical --> fusion
-    fusion --> reranker["Optional bounded reranker"]
-    reranker --> answer["Grounded answer generation<br/>+ citation validation"]
-
-    question --> ui["Cited Streamlit UI"]
-    ui --> api["FastAPI<br/>/api/v1/answer"]
-    api --> orchestrator["Shared question orchestration"]
-    orchestrator --> mode["direct default<br/>or LangGraph opt-in"]
-    mode --> direct["Direct execution"]
-    mode --> boundedGraph["Bounded graph<br/>validate → route → execute → validate → respond"]
-    direct --> routeDecision["Shared deterministic route decision"]
-    boundedGraph --> routeDecision
-    routeDecision --> semantic
-    routeDecision --> analyticsRouter["Predefined analytics router"]
-    analyticsRouter --> analyticsRegistry["Fixed typed tool registry"]
-    sampleAnalytics --> analyticsRegistry
-    analyticsRegistry --> analyticsAnswer["Bounded analytics result"]
-    answer --> result["Provider-neutral application result"]
-    analyticsAnswer --> result
-    result --> api
+    sources --> ingestion
+    ingestion --> postgres
+    ingestion --> embeddings
+    embeddings --> pgvector
+    embeddings --> pinecone
+    pgvector --> dense
+    pinecone --> dense
+    postgres --> dense
+    postgres --> lexical
+    fastapi --> orchestration
+    orchestration --> dense
+    orchestration --> analytics
+    dense --> rrf
+    lexical --> rrf
+    rrf --> rerank
+    rerank --> grounded
+    grounded --> fastapi
+    analytics --> fastapi
+    streamlit --> fastapi
+    rerank -.-> langchain
 ```
 
-This architecture uses semantic + lexical hybrid retrieval for documentation questions and predefined sample analytics outputs for structured analytics questions. Streamlit uses the public HTTP contract; FastAPI remains a typed, sanitized adapter over the same reusable Python orchestration used by tests and other local callers.
+PostgreSQL remains authoritative even when Pinecone supplies dense candidates. The analytics branch never executes arbitrary SQL or code, and the LangChain Core adapter maps native retrieval results into framework document types rather than creating a second RAG, answer, citation, or orchestration backend.
 
-Evaluation, pytest, and GitHub Actions validate retrieval behavior, citation coverage, analytics routing, and safe no-answer responses.
+## Key Capabilities
 
-## Data Sources
+| Area | Current capability |
+|---|---|
+| Data foundation | Curated NYC 311 field knowledge and project runbooks; manifest-controlled ingestion; normalized hashes; stable identities; section and heading provenance |
+| Retrieval | CivicLens-generated embeddings; pgvector semantic search; PostgreSQL full-text search; deterministic RRF; optional bounded reranking |
+| Grounding and safety | Context-only generation, stable chunk citations, application-owned provenance reconstruction, citation validation, and safe no-answer behavior |
+| Analytics tools | Four fixed CSV-backed tools with strict typed inputs, immutable allowlisting, bounded results, read-only execution, and explicit sample-data provenance |
+| Application boundary | FastAPI request/response validation, sanitized backend errors, Streamlit HTTP client, liveness/readiness, and an unchanged provider-neutral answer contract |
+| Orchestration | Dependency-free direct mode by default; optional acyclic LangGraph workflow with bounded steps and one analytics-tool call maximum |
+| Portability | PostgreSQL + pgvector and native CivicLens RAG by default; optional Pinecone dense retrieval and optional LangChain Core retriever/document compatibility |
+| Observability | Opt-in privacy-conscious query/retrieval metadata and bounded feedback without persisting raw questions, answers, chunks, vectors, or credentials |
+| Delivery | Docker Compose, ordered migrations, rerun-safe bootstrap, dated Render deployment proof, pytest, Ruff, compile checks, and offline-safe CI |
 
-The Phase 2 knowledge foundation uses a small curated set of local source documents and sample analytics outputs:
+## Demo / Screenshots
 
-- `docs/knowledge/nyc311-service-request-fields.md`, derived from official NYC Open Data and NYC311 references
-- `docs/knowledge/civiclens-lakehouse-runbook.md`, clearly labeled as CivicLens project documentation
-- Project README, architecture, source, RAG design, and evaluation notes
-- Small sample CSV outputs in `data/sample_outputs/`
+### Grounded answer with validated citations
 
-`docs/knowledge/source-manifest.json` is the authoritative default ingestion inventory. It records source category, path/URL, version or retrieval date, and a normalized SHA-256 content hash. The Python ingestion API still accepts an explicit `source_paths` override for tests and compatible local workflows.
+![Dated Render proof showing a grounded CivicLens answer and source citations](docs/screenshots/issue15-render-cited-rag-answer.png)
 
-The project does not ingest millions of raw NYC 311 records into the vector database. Structured metrics stay in SQL examples or small sample CSV outputs instead of being dumped into vector storage. See `docs/data-sources.md` for official source links and interpretation limits.
+Captured during the dated August 2026 Render smoke test. This is non-production deployment evidence, not a permanent live-service or availability claim.
+
+### Typed sample analytics result
+
+![Local Streamlit sample analytics answer with source provenance and bounded rows](docs/screenshots/streamlit-analytics-answer.png)
+
+The analytics route reads only checked-in sample CSV outputs through fixed tool definitions. See the additional [safe no-answer proof](docs/screenshots/issue15-render-safe-no-answer.png) and [local Streamlit overview](docs/screenshots/streamlit-local-ui.png).
 
 ## How RAG Works
 
-1. Manifest-authorized source documents are hash-validated and loaded into a processed document store.
-2. Markdown is split within heading sections; plain text uses a compatible fallback.
-3. Stable document/chunk IDs, heading context, provenance, normalized content hashes, ingestion time, and `word_count` are preserved.
-4. The default real local provider generates 384-dimensional embeddings with `sentence-transformers/all-MiniLM-L6-v2`; deterministic embeddings remain the CI fallback.
-5. PostgreSQL always stores authoritative documents, chunks, text, provenance, hashes, and lexical indexes. The selected dense-vector provider stores only CivicLens-generated vectors; pgvector is the default.
-6. The selected provider returns bounded semantic IDs/scores, which are hydrated and current-corpus-validated through PostgreSQL. PostgreSQL independently supplies lexical candidates.
-7. Reciprocal Rank Fusion deduplicates and combines the candidates deterministically.
-8. An optional local cross-encoder reranks only the configured bounded candidate set.
-9. The configured answer provider receives only the question and allow-listed retrieved evidence; CivicLens validates stable chunk-ID citations before displaying provenance.
+1. The source manifest authorizes each document and validates its normalized SHA-256 content hash before ingestion.
+2. Markdown is split within heading boundaries; chunks retain stable document/chunk IDs, section paths, source provenance, hashes, and chunking metadata.
+3. CivicLens generates embeddings with the selected provider. The default real-local profile uses Sentence Transformers; deterministic embeddings support offline CI.
+4. The selected dense store returns bounded cosine-scored candidates: pgvector by default or explicitly configured Pinecone. Pinecone IDs and scores are accepted only after PostgreSQL hydration and current-corpus validation.
+5. PostgreSQL independently retrieves bounded lexical candidates with full-text search, regardless of the dense provider.
+6. RRF deterministically fuses semantic and lexical rankings; an optional cross-encoder reranks only the configured candidate window.
+7. Native CivicLens generation receives only the question and allow-listed retrieved evidence.
+8. CivicLens validates stable chunk citations, rebuilds provenance from trusted retrieval metadata, and converts unsupported or uncited claims to the safe no-answer response.
 
-Sentence Transformers models may download on their first explicit local use. OpenAI-backed embeddings or answers remain optional and disabled by default.
+PostgreSQL is always authoritative for document/chunk text, metadata, provenance, hashes, corpus identity, and lexical retrieval. See the [RAG design](docs/rag-design.md) for provider compatibility, score semantics, reindexing, readiness, and failure behavior.
 
-## Hybrid RAG Design
+## Quick Start
 
-CivicLens now uses two deliberately distinct hybrid patterns:
-
-- Documentation questions use dense semantic + PostgreSQL lexical retrieval with RRF and optional bounded reranking.
-- Simple analytics questions use predefined sample CSV outputs.
-- The analytics path is a small keyword router, not a production text-to-SQL agent.
-
-At the application level, "Hybrid RAG" means document RAG plus predefined analytics routing. Inside the document RAG branch, Issue 9 "hybrid retrieval" specifically means dense semantic retrieval combined with PostgreSQL lexical retrieval.
-
-This keeps the local demo predictable and offline-friendly while still showing how RAG and analytics can work together in an operations copilot.
-
-## Optional Bounded LangGraph Orchestration
-
-`ORCHESTRATION_MODE=direct` is the default and reference behavior. It has no LangGraph dependency. Install the optional dependency with `python -m pip install -r requirements-langgraph.txt` and set `ORCHESTRATION_MODE=langgraph` to execute the same deterministic route decision through a small acyclic graph: input validation, route decision, one RAG or analytics execution, final validation, and response generation.
-
-The graph reuses Issue 9 retrieval, Issue 11 grounded generation/citation validation, and the Issue 16 fixed Tool Registry. `LANGGRAPH_MAX_STEPS` is bounded from 5 through 32 (default 8), while `LANGGRAPH_TOOL_CALL_LIMIT` is fixed at 1. An unsupported route, unavailable optional dependency, invalid result, tool-validation failure, or exceeded limit produces a controlled abstention/fallback. This is not an autonomous agent: it has no LLM router, planner, tool loop, arbitrary tool execution, memory, or hidden reasoning trace. The existing `POST /api/v1/answer` contract remains unchanged.
-
-## Optional Issue 18 Portability Adapters
-
-The default remains `VECTOR_STORE_PROVIDER=pgvector` with native CivicLens RAG. PostgreSQL is always authoritative for documents, chunks, chunk text, provenance, corpus hashes, and full-text retrieval. The small dense-vector contract is used by the default pgvector path and by the optional Pinecone path; lexical search, RRF, reranking, generation, citation validation, evaluation, and orchestration remain native CivicLens components.
-
-Pinecone is an explicit server-side option. Install `requirements-pinecone.txt`, configure an existing cosine index whose dimension exactly matches `EMBEDDING_DIMENSION`, and set `VECTOR_STORE_PROVIDER=pinecone`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, and `PINECONE_INDEX_HOST`. CivicLens does not create/delete indexes or use Pinecone-hosted embeddings. Bootstrap first persists PostgreSQL metadata, then synchronizes a deterministic current-corpus namespace and performs bounded query-visibility verification. Retrieval accepts Pinecone IDs/scores only after PostgreSQL hydration and identity/hash validation. Provider, authentication, timeout, index, or synchronization failures never fall back to pgvector and remain backend-unavailable errors rather than `NO_ANSWER`.
-
-The ADR at `docs/adr/001-rag-framework-selection.md` selects exactly one framework: LangChain Core. Install `requirements-langchain.txt` and call `create_langchain_retriever` from `src.integrations.langchain_retriever` in server-side Python when a LangChain `BaseRetriever`/`Document` boundary is needed. This wrapper calls native CivicLens retrieval and maps stable `chunk_id`, safe source metadata, rank, and scores; it is not a second RAG or answer API. Answers generated later by external LangChain code do not automatically inherit CivicLens citation validation or abstention guarantees. Native FastAPI, Streamlit, Docker, and `POST /api/v1/answer` do not require or select this adapter.
-
-An optional live Pinecone smoke writes a small explicit namespace prefix and is never run by CI:
-
-```bash
-python -m pip install -r requirements-pinecone.txt
-python -m scripts.smoke_pinecone --namespace-prefix issue18-disposable --limit 3 --confirm-live-write
-```
-
-The command requires all Pinecone settings plus a reachable PostgreSQL database, does not print credentials, verifies sync/query and PostgreSQL hydration, and does not delete the namespace automatically. No successful live Pinecone validation is claimed unless this command was actually run.
-
-## Answer Providers, Grounding, and Citations
-
-`ANSWER_PROVIDER=local` is the default. It preserves the deterministic context-only answer provider used by local workflows, evaluation, and CI. `ANSWER_PROVIDER=openai` selects the single optional commercial answer provider; the legacy `USE_OPENAI_ANSWERS=true` flag continues to select OpenAI even alongside the `.env.example` local default. Missing credentials or provider failures use a controlled local fallback, and an empty retrieval result never calls the remote provider.
-
-The OpenAI provider uses configurable `ANSWER_MODEL`, `ANSWER_TIMEOUT_SECONDS`, and bounded `ANSWER_MAX_RETRIES` settings. It returns an application-owned structured result containing answer text, stable `chunk_id` citations, and `answered`/`abstained` status.
-
-Retrieved text is treated as untrusted evidence. The provider is instructed not to follow instructions embedded inside retrieved documents, while application-side citation validation ensures that only retrieved chunk IDs can be accepted as citations. CivicLens accepts only citation IDs present in the retrieved result set, removes fabricated IDs, deduplicates valid IDs, and rebuilds source name/path/section/heading provenance from application-owned retrieval metadata. An allegedly answered result with zero valid citations becomes the normal safe no-answer response.
-
-Provider-specific errors are converted to non-secret failure categories. API keys, authorization headers, database configuration, and unrelated application state are neither placed in provider content nor exposed in settings/provider representations. Automated tests and CI use mocks/fakes and make no OpenAI calls. Separate manual Issue 11 smoke verification with a real API key was completed after the code/security audit; it covered grounded answers, citation validation, abstention, and adversarial input, not a full real-LLM benchmark or production validation.
-
-## Database Schema
-
-The local PostgreSQL schema includes:
-
-- `documents`: stable document ID, source provenance, normalized content hash, and ingestion timestamp.
-- `chunks`: stable chunk ID, section/heading context, source provenance, normalized content hash, `word_count`, embedding provider/model/dimension, separate compatible pgvector columns, and a generated PostgreSQL full-text vector.
-- `queries`: privacy-conscious execution metadata keyed by `query_id`; the legacy raw `question` column is nullable and new records leave it `NULL`.
-- `retrieval_results`: retrieved chunk IDs, ranks, available dense/lexical/fusion/reranker scores, and source provenance linked to the same `query_id`.
-- `feedback`: helpful/not-helpful feedback and an optional bounded comment linked to a known query.
-- `schema_migrations`: applied migration versions, names, checksums, and timestamps.
-
-## Render Cloud Demo
-
-Issue 15 was validated on Render on 2026-08-22 EDT as a time-limited,
-non-production portfolio demo:
-
-- Streamlit: <https://civiclens-ui.onrender.com>
-- FastAPI: <https://civiclens-api-o8ap.onrender.com>
-- Liveness: `GET /health` returned `200`.
-- RAG readiness: `GET /ready` returned `200` after the rerun-safe bootstrap.
-- A supported field-definition question returned a grounded answer with stable
-  chunk provenance, and an unsupported question safely abstained with no
-  sources.
-
-The demo reuses the Issue 14 Dockerfiles and containerized architecture with
-the existing private Render PostgreSQL/pgvector database. It uses deterministic embeddings and the local
-answer provider, so no OpenAI key or paid LLM call is required. Free services
-can cold-start and the URLs are not a production availability commitment. See
-[the deployment proof and teardown notes](docs/deployment.md).
-
-## Docker Compose Demo
-
-Docker Engine with Docker Compose v2 is the recommended demo prerequisite. Create a local `.env` from `.env.example` only when overriding runtime defaults, choose a local PostgreSQL password, and never commit that file. Secrets are supplied at container runtime; they are not copied into images or passed as build arguments.
+Docker Engine with Docker Compose v2 is the primary local path:
 
 ```bash
 docker compose up -d --build
 docker compose run --rm api python -m scripts.bootstrap
 ```
 
-The normal stack contains `postgres`, `api`, and `ui`. Inside Compose, FastAPI reaches the database at `postgres:5432` and Streamlit reaches FastAPI at `http://api:8000`; host-facing defaults remain PostgreSQL `5432`, API `8000`, and Streamlit `8501`. Both application processes bind to `0.0.0.0` inside their containers. OpenAI is disabled and the local answer provider is the default.
-
-The one-off bootstrap command applies Issue 13 migrations, validates/loads the source manifest, builds current chunks, persists canonical PostgreSQL metadata, synchronizes the selected dense-vector provider, and verifies corpus compatibility before reporting success. It is safe to rerun: it does not reset the database, truncate tables, delete volumes, or erase observability/feedback history. Ingestion fails on a missing source or hash mismatch. An incompatible embedding/index profile fails clearly instead of silently reindexing or changing provider.
-
-If an intentional provider/model/dimension change requires rebuilding retrieval storage, review the model choice first and run the explicit operation separately:
+- Streamlit: <http://localhost:8501>
+- FastAPI: <http://localhost:8000>
+- API documentation: <http://localhost:8000/docs>
 
 ```bash
-docker compose run --rm api python -m src.embeddings.embed_chunks --reindex
-```
-
-This is an operator-requested retrieval reindex, not part of normal bootstrap. See `docs/rag-design.md` for the complete profile-safety procedure. The default Sentence Transformers model may download weights on its first explicit bootstrap unless already cached; Compose retains that cache in a named model volume. No model weights are committed.
-
-### Health, Readiness, and URLs
-
-- Streamlit: `http://localhost:8501`
-- FastAPI: `http://localhost:8000`
-- `GET /health`: cheap process liveness used by Docker; it can return `200` before bootstrap.
-- `GET /ready`: bounded read-only RAG readiness; it always checks PostgreSQL metadata/lexical readiness and also checks the selected pgvector or Pinecone current-corpus state.
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:8000/ready
-```
-
-The UI depends only on a live API and can start before RAG bootstrap. It reports unavailable, timed-out, validation, not-ready, server, and malformed-response conditions with controlled messages rather than exposing internal payloads.
-
-### Stop, Restart, and Persistence
-
-```bash
-docker compose down
-docker compose up -d
-```
-
-Normal `docker compose down` and later startup preserve PostgreSQL data in the named `postgres_data` volume and cached models in `model_cache`. Bootstrap can be rerun after restart.
-
-**Destructive, optional cleanup:** `docker compose down -v` deletes the Compose volumes and their local database/model-cache contents. It is not part of normal shutdown or bootstrap.
-
-## Non-Container Development
-
-Docker is not required for the Python application processes. A host-local workflow can use any supported PostgreSQL/pgvector instance; this example starts only the existing database service and then runs the same bootstrap/API/UI boundary on the host:
-
-```bash
-docker compose up -d postgres
-python -m scripts.bootstrap
-uvicorn api.main:app
-streamlit run app/streamlit_app.py
-```
-
-The host-local Streamlit default is `CIVICLENS_API_BASE_URL=http://localhost:8000`; Docker Compose maps the separate `CIVICLENS_DOCKER_API_BASE_URL` setting to `http://api:8000` so copying `.env.example` cannot accidentally make a container call its own localhost. `CIVICLENS_API_TIMEOUT_SECONDS` controls the UI request timeout and must be greater than zero and no more than 120 seconds. PostgreSQL and embedding/provider variables remain documented in `.env.example`. The same `python -m scripts.bootstrap` command uses host configuration and the same ordered migrations and corpus functions.
-
-The documented offline evaluation command uses deterministic in-memory retrieval and needs no database, paid API, API key, network, or model download. The separate `--profile real` comparison requires cached local models and a prepared database.
-
-Database changes remain ordered files under `sql/migrations/`. Bootstrap runs their checksum-tracked migration runner on every supported fresh or upgraded database, rather than relying only on PostgreSQL's first-volume initialization directory. `0001` establishes the Issues 8/9 baseline; `0002` upgrades existing logging tables in place and adds feedback; forward-only `0003` adds the Issue 17 orchestration metadata fields. Existing local databases do not need to be deleted or recreated.
-
-### Local FastAPI
-
-Start the host-local API with `uvicorn api.main:app`. It exposes:
-
-- `GET /health` for dependency-free process liveness;
-- `GET /ready` for a bounded, read-only check of PostgreSQL, the RAG schema, and current compatible embedded chunks;
-- `POST /api/v1/answer` for the shared analytics/RAG question flow.
-- `POST /api/v1/feedback` for helpful/not-helpful feedback linked to a known observed query.
-
-OpenAI remains optional. Liveness and readiness never require an OpenAI key, call a paid provider, load a model, or generate an answer. Analytics requests continue to use only the predefined checked-in sample CSV outputs through four fixed typed tool IDs. The immutable allowlist rejects unknown tools, extra fields, malformed values, and out-of-range limits; it never executes user- or LLM-generated SQL or arbitrary Python.
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:8000/ready
 curl -X POST http://localhost:8000/api/v1/answer \
   -H "Content-Type: application/json" \
   -d '{"question":"What does complaint_type mean?","top_k":5}'
-curl -X POST http://localhost:8000/api/v1/feedback \
-  -H "Content-Type: application/json" \
-  -d '{"query_id":"<query_id from the answer>","rating":"helpful","comment":"Useful source."}'
 ```
 
-The answer request accepts a nonblank `question` of at most 2,000 characters and an optional `top_k` from 1 through 100. The typed response contains `answer`, provider-neutral `route` and `status`, validated source summaries, an optional confidence note, and a `query_id` when observability is enabled. Streamlit renders that same public response. It deliberately omits raw retrieved text, provider payloads, settings, credentials, database URLs, stack traces, and internal diagnostics. Backend failures use sanitized error responses. This API is local-first and portfolio-scale; it is not a production service.
+The default local semantic model may download weights on first use. For non-container setup, configuration, reindexing, readiness, teardown, and optional Pinecone smoke instructions, use the [RAG design](docs/rag-design.md), [deployment guide](docs/deployment.md), and [configuration reference](.env.example).
 
-### Observability, Privacy, and Feedback
+## Evaluation
 
-`OBSERVABILITY_ENABLED=false` is the safe default and is explicit in CI. When disabled, RAG and analytics behavior is unchanged, no query rows are written, and feedback is unavailable because there is no persisted query to reference. Set `OBSERVABILITY_ENABLED=true` only after applying migrations. `OBSERVABILITY_CONNECT_TIMEOUT_SECONDS` bounds logging and feedback database connections.
+The approved real-local Advanced RAG comparison uses a **24-question curated fixture**, with **14 retrieval-eligible questions**, section-level relevance, PostgreSQL/pgvector, and cached local models.
 
-When enabled, shared orchestration creates one UUID `query_id` and carries it through the answer result. The logger uses that same ID for the query row and all retrieved-chunk rows; the API returns it so `POST /api/v1/feedback` can reference the completed execution. Logging happens outside FastAPI handlers and a logging/database failure is recorded only as an internal nonfatal status—it does not replace an otherwise successful RAG or analytics answer. If persistence fails, the public result omits `query_id` because no stored query exists for feedback. Genuine retrieval and generation failures retain their existing behavior.
+| Strategy | Recall@5 | MRR | Expected source |
+|---|---:|---:|---:|
+| Semantic | 0.6607 | 0.5857 | 0.7857 |
+| Hybrid | 0.8393 | 0.7071 | 0.9286 |
+| Hybrid + reranking | 0.8214 | 0.7619 | 0.9286 |
 
-Stored query metadata is limited to timestamp, route, configured retrieval strategy, embedding and answer provider/model names when applicable, answer status, reranking flag, `top_k`, question length, latency, and an observability schema version. Retrieval rows store chunk/document IDs, final and component ranks/scores that the existing pipeline actually produced, source name/type/category/path/URL/section/heading provenance, and content hashes. Feedback stores the UUID query reference, helpful/not-helpful value, optional comment of at most 1,000 characters, and timestamp.
-
-The logger does not store raw question text, generated answer text, retrieved chunk text, embeddings, API keys, authorization headers, database credentials, environment secrets, hidden reasoning, or raw provider payloads. The legacy `queries.question` column remains only to preserve older data and is `NULL` for Issue 13 records. Feedback comments are deliberately stored as supplied user feedback, so clients should not place secrets in them. This is local diagnostic metadata, not hosted monitoring, distributed tracing, a compliance system, or a retention guarantee.
-
-## Example Questions
-
-- What is the NYC 311 Lakehouse architecture?
-- What is the no-answer rule?
-- What are the top complaint types?
-- Which borough has the highest complaint volume?
-- What does complaint_type mean?
-- What is a random unsupported question?
-
-## Evaluation Summary
-
-Issue 10 uses a versioned 24-question fixture at `data/evaluation/rag_test_questions.csv`, retaining 18 Phase 1 cases and adding focused Advanced RAG cases. Section-level relevance supports multiple relevant IDs. Reports keep Recall@k, MRR, expected-source retrieval, routing, citation presence/validity, safe no-answer accuracy, and unsupported answers separate.
-
-`python -m src.evaluation.evaluate_rag --profile offline` writes reproducible Markdown and JSON regression results under ignored `data/evaluation/results/`. Those deterministic hash-embedding scores are not a real semantic benchmark. `--profile real` separately compares the actual cached Sentence Transformers/PostgreSQL semantic, hybrid, and hybrid-plus-reranking paths when local dependencies are ready.
-
-The reviewed portfolio baseline is `docs/evaluation-report.md`. See `docs/evaluation-notes.md` for formulas, denominators, configuration capture, commands, and limitations. This remains a small curated benchmark, not a production reliability claim or LLM-judged evaluation.
-
-## CI
-
-GitHub Actions runs offline-safe checks only:
-
-```bash
-python -m pytest -q
-python -m compileall api app src scripts tests
-```
-
-CI explicitly uses deterministic 1536-dimensional embeddings, semantic-only retrieval, disabled reranking, the local answer provider, and disabled observability. It does not require Docker, `.env`, OpenAI credentials, a live database, external APIs, model-registry access, model-weight downloads, or raw NYC 311 datasets.
-
-## Screenshots
-
-These screenshots are captured from a local Streamlit run.
-
-### Local Streamlit UI
-
-![CivicLens RAG local Streamlit UI](docs/screenshots/streamlit-local-ui.png)
-
-### Sample Analytics Answer
-
-![CivicLens RAG sample analytics answer](docs/screenshots/streamlit-analytics-answer.png)
-
-## Limitations
-
-- Local Docker Compose and a time-limited Render portfolio demo are validated; there is no production deployment or availability commitment.
-- The optional bounded LangGraph workflow is not an orchestration platform or autonomous agent; there is no authentication, streaming, rate limiting, or production SLA.
-- Not connected to live NYC 311 data.
-- No default OpenAI calls.
-- The opt-in OpenAI answer provider has been manually live-verified with grounded-answer, citation-validation, abstention, and adversarial-input smoke tests; automated tests and CI remain mock/offline-only.
-- Local semantic and reranker models require memory/disk and may download weights on first use.
-- Fixed typed sample analytics tools, not unrestricted production text-to-SQL.
-- Small curated documents and sample outputs only.
-- Official source material is a curated field guide, not a live or complete copy of NYC 311 Open Data.
-- Evaluation is a small curated portfolio benchmark and does not use an LLM judge.
-- Observability is local and opt-in; there is no hosted dashboard, distributed tracing, alerting, retention policy, compliance guarantee, authentication, or user/session tracking.
+These results are a small portfolio benchmark, not evidence of production reliability, general benchmark leadership, or statistical significance. The recorded application results also expose known failures: four questions expected to abstain were answered, and one adversarial question routed to predefined analytics. CivicLens keeps those outcomes visible rather than changing labels, thresholds, questions, or retrieval behavior to improve the presentation. See the [approved evaluation report](docs/evaluation-report.md) and [methodology](docs/evaluation-notes.md).
 
 ## Tech Stack
 
-- Python
-- Streamlit
-- FastAPI and Uvicorn
-- Optional LangGraph, disabled by default
-- Optional LangChain Core compatibility adapter, disabled by default
-- PostgreSQL
-- pgvector
-- Optional Pinecone dense-vector adapter, disabled by default
-- PostgreSQL full-text search
-- Sentence Transformers
-- Docker
-- SQL
-- pytest
-- GitHub Actions
-- Optional OpenAI API integration, disabled by default
+| Layer | Technologies |
+|---|---|
+| AI / RAG | Python, Sentence Transformers, optional OpenAI, optional bounded LangGraph, optional LangChain Core |
+| Retrieval | PostgreSQL 16, pgvector, PostgreSQL full-text search, RRF, optional cross-encoder reranking, optional Pinecone |
+| Application | FastAPI, Pydantic, Uvicorn, Streamlit |
+| Data / operations | SQL migrations, manifest-based ingestion, Docker Compose, Render Blueprint |
+| Quality | pytest, Ruff, compileall, GitHub Actions |
 
-## Repository Structure
+GitHub Actions validates four independent paths: **core/native** proves the Issue 18 optional packages are absent, then runs pytest, Ruff, and compileall; **bounded LangGraph** runs its routing, workflow, API, and safety suite; **optional Pinecone** installs the real SDK but uses mocked/fake service calls; and **optional LangChain Core** installs the selected real framework package for adapter tests. Required CI uses no paid APIs, model downloads, live Pinecone calls, or other external services.
 
-<details>
-<summary>View repository structure</summary>
+## Limitations
 
-```text
-civiclens-rag-nyc311/
-|-- api/
-|   |-- main.py
-|   |-- models.py
-|   `-- routes/
-|       `-- feedback.py
-|-- app/
-|   |-- api_client.py
-|   `-- streamlit_app.py
-|-- data/
-|   |-- evaluation/
-|   |-- processed/
-|   |-- raw/
-|   `-- sample_outputs/
-|-- docs/
-|   |-- architecture.md
-|   |-- data-sources.md
-|   |-- evaluation-notes.md
-|   |-- adr/
-|   |   `-- 001-rag-framework-selection.md
-|   |-- knowledge/
-|   |   |-- civiclens-lakehouse-runbook.md
-|   |   |-- nyc311-service-request-fields.md
-|   |   `-- source-manifest.json
-|   |-- portfolio-card.md
-|   `-- rag-design.md
-|-- sql/
-|   |-- migrations/
-|   |-- sample_queries.sql
-|   `-- schema.sql
-|-- src/
-|   |-- agents/
-|   |-- analytics/
-|   |   `-- tools/
-|   |-- chunking/
-|   |-- common/
-|   |-- embeddings/
-|   |   `-- providers/
-|   |-- evaluation/
-|   |-- generation/
-|   |-- ingestion/
-|   |-- integrations/
-|   |-- observability/
-|   |-- orchestration/
-|   |-- retrieval/
-|   |   |-- hybrid_retriever.py
-|   |   `-- reranker.py
-|   `-- vectorstores/
-|-- scripts/
-|   |-- bootstrap.py
-|   `-- smoke_pinecone.py
-|-- tests/
-|-- .dockerignore
-|-- Dockerfile.api
-|-- Dockerfile.ui
-|-- docker-compose.yml
-|-- requirements-ui.txt
-|-- requirements-langchain.txt
-|-- requirements-pinecone.txt
-|-- requirements.txt
-`-- README.md
-```
+- CivicLens uses a small curated knowledge corpus and checked-in sample analytics outputs. It is not connected to live NYC 311 operational ingestion.
+- The analytics route exposes four fixed, typed, read-only tools; it is not unrestricted or production text-to-SQL.
+- OpenAI embeddings and answer generation are optional and disabled by default. Local model use has workstation memory/disk requirements and may require an initial model download.
+- Pinecone has real-SDK tests against fakes/mocks, but no successful live Pinecone smoke test is claimed.
+- The August 2026 Render evidence is dated, time-limited, non-production deployment proof. It does not establish ongoing availability.
+- There is no production authentication, authorization, high availability, autoscaling, disaster recovery, rate limiting, hosted/production monitoring, retention guarantee, SLA, or production NYC service claim.
+- The bounded LangGraph path is not a fully autonomous agent: it has no planner, arbitrary tools, repeated tool loop, conversational memory, or hidden reasoning trace.
+- The evaluation fixture is small and includes documented abstention/routing failures; it does not establish production answer quality or reliability.
+- Streamlit is the current UI. The Next.js/Vercel portfolio frontend in [Issue 19](https://github.com/rihua-tech/civiclens-rag-nyc311/issues/38) is future work and is not implemented.
 
-</details>
+## Deep-Dive Documentation
+
+- [Architecture](docs/architecture.md) — component boundaries, data flow, orchestration, observability, and deployment architecture
+- [RAG design](docs/rag-design.md) — ingestion, embeddings, vector providers, hybrid retrieval, grounding, citations, and operations
+- [Data sources](docs/data-sources.md) — curated inventory, official provenance, manifest rules, and scope
+- [Evaluation report](docs/evaluation-report.md) — approved measured baseline and known failed cases
+- [Evaluation methodology](docs/evaluation-notes.md) — fixture, metrics, denominators, profiles, and commands
+- [Deployment proof](docs/deployment.md) — dated Render evidence, reproduction notes, costs, and teardown limitations
+- [Framework ADR](docs/adr/001-rag-framework-selection.md) — LangChain Core versus LlamaIndex Core decision
+- [Configuration](.env.example) — default and optional server-side settings
+
+This repository is an AI Engineering / RAG Engineering portfolio system with a strong data-engineering foundation. It is intentionally scoped as an auditable, non-production demonstration rather than a live municipal service.
