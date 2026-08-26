@@ -1,0 +1,4 @@
+# Preserve CivicLens' established pre-Ruff-0.16 lint baseline.
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
