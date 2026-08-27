@@ -117,7 +117,6 @@ def test_local_answer_accepts_lexical_only_result_diagnostics():
 
 
 def test_answer_generation_does_not_require_openai_by_default(monkeypatch):
-    monkeypatch.delenv("USE_OPENAI_ANSWERS", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(
         "src.generation.answer_question.retrieve_context",

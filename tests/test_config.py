@@ -19,7 +19,6 @@ CONFIG_ENV_VARS = (
     "ANSWER_MODEL",
     "ANSWER_TIMEOUT_SECONDS",
     "ANSWER_MAX_RETRIES",
-    "USE_OPENAI_ANSWERS",
     "OPENAI_API_KEY",
     "OBSERVABILITY_ENABLED",
     "OBSERVABILITY_CONNECT_TIMEOUT_SECONDS",
@@ -55,6 +54,7 @@ def test_normal_local_defaults_select_one_real_semantic_hybrid_profile(monkeypat
     assert settings.reranking_enabled is False
     assert settings.rerank_candidate_limit == 20
     assert settings.answer_provider == "local"
+    assert settings.use_openai_answers is False
     assert settings.answer_model == "gpt-4o-mini"
     assert settings.answer_timeout_seconds == 30.0
     assert settings.answer_max_retries == 2
@@ -147,15 +147,40 @@ def test_legacy_openai_flag_overrides_semantic_env_example_profile(monkeypatch):
     assert settings.embedding_dimension == 1536
 
 
-def test_legacy_answer_flag_overrides_local_env_example_default(monkeypatch):
+@pytest.mark.parametrize("configured_provider", [None, "local"])
+def test_stale_legacy_answer_flag_cannot_select_openai(
+    monkeypatch,
+    configured_provider,
+):
     monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
-    monkeypatch.setenv("ANSWER_PROVIDER", "local")
+    if configured_provider is None:
+        monkeypatch.delenv("ANSWER_PROVIDER", raising=False)
+    else:
+        monkeypatch.setenv("ANSWER_PROVIDER", configured_provider)
     monkeypatch.setenv("USE_OPENAI_ANSWERS", "true")
+
+    settings = config.Settings.from_env()
+
+    assert settings.answer_provider == "local"
+    assert settings.use_openai_answers is False
+
+
+def test_openai_answer_provider_derives_compatibility_flag(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.setenv("ANSWER_PROVIDER", "openai")
 
     settings = config.Settings.from_env()
 
     assert settings.answer_provider == "openai"
     assert settings.use_openai_answers is True
+
+
+def test_invalid_answer_provider_is_rejected(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
+    monkeypatch.setenv("ANSWER_PROVIDER", "automatic")
+
+    with pytest.raises(ValueError, match="ANSWER_PROVIDER"):
+        config.Settings.from_env()
 
 
 def test_answer_retry_limit_is_bounded(monkeypatch):

@@ -65,7 +65,6 @@ def test_api_uses_existing_database_and_explicit_offline_demo_profile():
         "RETRIEVAL_MODE": "hybrid",
         "RERANKING_ENABLED": "false",
         "ANSWER_PROVIDER": "local",
-        "USE_OPENAI_ANSWERS": "false",
         "USE_OPENAI_EMBEDDINGS": "false",
         "OBSERVABILITY_ENABLED": "false",
         "PORT": "8000",
@@ -73,6 +72,7 @@ def test_api_uses_existing_database_and_explicit_offline_demo_profile():
     assert {
         key: environment[key]["value"] for key in expected_values
     } == expected_values
+    assert "USE_OPENAI_ANSWERS" not in environment
     assert "OPENAI_API_KEY" not in environment
     assert not any(key.startswith("POSTGRES_") for key in environment)
     assert environment["CIVICLENS_CORS_ALLOWED_ORIGINS"] == {

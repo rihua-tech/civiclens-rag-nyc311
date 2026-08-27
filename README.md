@@ -6,6 +6,8 @@
 
 CivicLens is a non-production AI Engineering and RAG Engineering portfolio project built on a curated NYC 311 knowledge corpus. It combines section-aware ingestion, semantic and PostgreSQL lexical retrieval, Reciprocal Rank Fusion (RRF), grounded generation, and validated citations behind FastAPI. A recruiter-facing Next.js product UI and the existing Streamlit engineering UI both consume that public contract; PostgreSQL + pgvector and native CivicLens RAG remain the defaults. The repository also demonstrates bounded analytics tools and orchestration, reproducible evaluation, offline-safe CI, Docker Compose, and dated cloud deployment proof on top of a strong data-engineering foundation.
 
+**Live portfolio demo:** <https://civiclens-rag-nyc311.vercel.app> — a non-production deployment that may pause while its Render backend cold-starts.
+
 ## Proof at a Glance
 
 - **Traceable knowledge:** a version-controlled source manifest validates normalized content hashes, provenance, stable document IDs, and stable section-aware chunk IDs.
@@ -32,11 +34,11 @@ flowchart TD
     rrf["Reciprocal Rank Fusion"]
     rerank["Optional bounded reranking"]
     grounded["Grounded generation<br/>and citation validation"]
-    fastapi["FastAPI<br/>application boundary"]
+    fastapi["Render FastAPI<br/>application boundary"]
     orchestration["Direct orchestration — default<br/>Bounded LangGraph — optional"]
     analytics["Typed allowlisted analytics tools<br/>separate bounded route"]
     browser["Browser"]
-    nextjs["Next.js client<br/>product UI / Vercel target"]
+    nextjs["Vercel Next.js client<br/>product UI"]
     streamlit["Streamlit<br/>engineering / debug UI"]
     langchain["LangChain Core adapter<br/>optional compatibility only"]
 
@@ -66,6 +68,8 @@ flowchart TD
 
 PostgreSQL remains authoritative even when Pinecone supplies dense candidates. The analytics branch never executes arbitrary SQL or code, and the LangChain Core adapter maps native retrieval results into framework document types rather than creating a second RAG, answer, citation, or orchestration backend.
 
+The verified hosted path is **Browser → Vercel Next.js → Render FastAPI → PostgreSQL + pgvector**. Supported documentation questions use hybrid retrieval and the configured OpenAI answer provider, constrained to retrieved evidence with CivicLens-validated citations. Approved analytics use deterministic allowlisted tools over checked-in sample CSV outputs, while unsupported questions safely abstain with zero fabricated sources.
+
 ## Key Capabilities
 
 | Area | Current capability |
@@ -78,21 +82,21 @@ PostgreSQL remains authoritative even when Pinecone supplies dense candidates. T
 | Orchestration | Dependency-free direct mode by default; optional acyclic LangGraph workflow with bounded steps and one analytics-tool call maximum |
 | Portability | PostgreSQL + pgvector and native CivicLens RAG by default; optional Pinecone dense retrieval and optional LangChain Core retriever/document compatibility |
 | Observability | Opt-in privacy-conscious query/retrieval metadata and bounded feedback without persisting raw questions, answers, chunks, vectors, or credentials |
-| Delivery | Docker Compose, ordered migrations, rerun-safe bootstrap, dated Render proof, pytest, Vitest, Ruff, ESLint, TypeScript, production builds, and offline-safe CI |
+| Delivery | Docker Compose, ordered migrations, rerun-safe bootstrap, dated Render/Vercel proof, pytest, Vitest, Ruff, ESLint, TypeScript, production builds, and offline-safe CI |
 
-## Demo / Screenshots
+## Live Demo / Hosted Proof
 
 ### Grounded answer with validated citations
 
-![Dated Render proof showing a grounded CivicLens answer and source citations](docs/screenshots/issue15-render-cited-rag-answer.png)
+![Hosted CivicLens grounded RAG answer with validated citations](docs/screenshots/issue19-vercel-grounded-rag.png)
 
-Captured during the dated August 2026 Render smoke test. This is non-production deployment evidence, not a permanent live-service or availability claim.
+The hosted frontend submits a supported documentation question directly to Render FastAPI. The configured OpenAI provider generates only from retrieved evidence, and CivicLens validates the returned citations before exposing the public answer.
 
-### Typed sample analytics result
+### Approved sample analytics
 
-![Local Streamlit sample analytics answer with source provenance and bounded rows](docs/screenshots/streamlit-analytics-answer.png)
+![Hosted CivicLens approved analytics answer with sample-data provenance](docs/screenshots/issue19-vercel-analytics.png)
 
-The analytics route reads only checked-in sample CSV outputs through fixed tool definitions. See the additional [safe no-answer proof](docs/screenshots/issue15-render-safe-no-answer.png) and [local Streamlit overview](docs/screenshots/streamlit-local-ui.png).
+The analytics route reads only checked-in sample CSV outputs through fixed tool definitions. See the hosted [safe-abstention proof](docs/screenshots/issue19-vercel-safe-abstention.png), which returns zero sources rather than fabricating evidence.
 
 ## How RAG Works
 
@@ -157,13 +161,13 @@ GitHub Actions validates five independent paths: **core/native** proves the Issu
 
 - CivicLens uses a small curated knowledge corpus and checked-in sample analytics outputs. It is not connected to live NYC 311 operational ingestion.
 - The analytics route exposes four fixed, typed, read-only tools; it is not unrestricted or production text-to-SQL.
-- OpenAI embeddings and answer generation are optional and disabled by default. Local model use has workstation memory/disk requirements and may require an initial model download.
+- OpenAI embeddings and answer generation remain optional and disabled by default in repository configuration. The hosted demo explicitly sets `ANSWER_PROVIDER=openai` for grounded RAG generation while retaining Sentence Transformers embeddings.
 - Pinecone has real-SDK tests against fakes/mocks, but no successful live Pinecone smoke test is claimed.
-- The August 2026 Render evidence is dated, time-limited, non-production deployment proof. It does not establish ongoing availability.
+- The August 2026 Render/Vercel evidence is dated, time-limited, non-production deployment proof. It does not establish ongoing availability.
 - There is no production authentication, authorization, high availability, autoscaling, disaster recovery, rate limiting, hosted/production monitoring, retention guarantee, SLA, or production NYC service claim.
 - The bounded LangGraph path is not a fully autonomous agent: it has no planner, arbitrary tools, repeated tool loop, conversational memory, or hidden reasoning trace.
 - The evaluation fixture is small and includes documented abstention/routing failures; it does not establish production answer quality or reliability.
-- The Next.js product UI is implemented for direct browser-to-FastAPI use and targets Vercel, but this branch does not claim a verified Vercel deployment or permanent demo URL. Streamlit remains the engineering, validation, and debugging UI.
+- The Next.js product UI is hosted on Vercel and calls Render FastAPI directly; Streamlit remains the engineering, validation, and debugging UI. The public demo URL is portfolio evidence, not an availability commitment.
 
 ## Deep-Dive Documentation
 
@@ -172,7 +176,7 @@ GitHub Actions validates five independent paths: **core/native** proves the Issu
 - [Data sources](docs/data-sources.md) — curated inventory, official provenance, manifest rules, and scope
 - [Evaluation report](docs/evaluation-report.md) — approved measured baseline and known failed cases
 - [Evaluation methodology](docs/evaluation-notes.md) — fixture, metrics, denominators, profiles, and commands
-- [Deployment proof](docs/deployment.md) — dated Render evidence, reproduction notes, costs, and teardown limitations
+- [Deployment proof](docs/deployment.md) — dated Render/Vercel evidence, reproduction notes, costs, and teardown limitations
 - [Frontend setup](frontend/README.md) — local Next.js workflow, direct API boundary, quality commands, and Vercel configuration order
 - [Framework ADR](docs/adr/001-rag-framework-selection.md) — LangChain Core versus LlamaIndex Core decision
 - [Configuration](.env.example) — default and optional server-side settings

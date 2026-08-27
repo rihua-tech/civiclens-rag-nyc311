@@ -1,29 +1,31 @@
-# Render Deployment Proof
+# Render and Vercel Deployment Proof
 
 > **NON-PRODUCTION PORTFOLIO DEMO**
 >
 > A live, dated Render smoke test passed on 2026-08-23 UTC. This is deployment
 > proof for a time-limited portfolio demo, not a production availability or
 > reliability commitment.
+>
+> Final Issue 19 browser-to-backend validation was recorded on 2026-08-26 UTC
+> against the Vercel frontend and Render API documented below.
 
 ## Purpose and target
 
-Issue 15 uses Render for one small, time-limited cloud deployment proof while
-preserving the Issue 14 architecture:
+Issue 19 adds a Vercel-hosted Next.js product UI to the existing Render
+deployment without changing the FastAPI or RAG boundaries:
 
 ```text
-Streamlit Web Service
-        |
-        | HTTPS through the public FastAPI contract
-        v
-FastAPI Web Service
-        |
-        v
-shared orchestration -> analytics or RAG -> grounded generation
-        |
-        v
-existing Render PostgreSQL/pgvector database
+Browser
+  -> Vercel Next.js
+  -> Render FastAPI public contract
+  -> CivicLens orchestration
+  -> approved analytics or hybrid RAG
+  -> existing Render PostgreSQL/pgvector database
 ```
+
+Streamlit remains the separate engineering and debugging UI. Next.js contains
+no API proxy, provider client, database client, retrieval logic, or citation
+reconstruction.
 
 Render was selected because it supports Docker-based web services, managed
 PostgreSQL with pgvector, declarative Blueprints, and straightforward teardown.
@@ -53,12 +55,12 @@ desired.
 
 ### Source branch behavior
 
-During the live Blueprint creation, the Blueprint definition was selected from
+During the original live Blueprint creation, the Blueprint definition was selected from
 the `issue-15-cloud-deployment` branch. Although neither service sets a
 `branch` in `render.yaml`, Render linked both created services to that selected
 Blueprint branch. This was verified from the live service configuration and
-deploy logs. Before the feature branch is eventually deleted, the services
-must be relinked to `main` after the reviewed Issue 15 changes are merged.
+deploy logs. That records the original deployment state; the hosted services
+are now aligned with `main`.
 
 `render.yaml` creates only:
 
@@ -67,12 +69,16 @@ must be relinked to `main` after the reviewed Issue 15 changes are merged.
 - `civiclens-ui`: Free Docker web service built with `Dockerfile.ui`, with
   `/_stcore/health` as its Render health check.
 
-Automatic deploys are disabled. The API uses deterministic 1536-dimensional
-embeddings, hybrid retrieval, disabled reranking, local deterministic answers,
-disabled OpenAI paths, and disabled observability. No OpenAI key is needed.
-`CIVICLENS_CORS_ALLOWED_ORIGINS` is a Blueprint `sync: false` value because the
-exact stable Vercel production origin must be supplied through Render rather
-than guessed or committed.
+Automatic deploys are disabled. The checked-in Blueprint keeps the offline
+demo defaults, while the validated Issue 19 hosted runtime explicitly uses
+Sentence Transformers embeddings, hybrid retrieval, and
+`ANSWER_PROVIDER=openai` for grounded RAG answer generation. OpenAI generation
+is constrained to retrieved evidence, and CivicLens validates citations before
+returning the public response. `ANSWER_PROVIDER` is the single source of truth;
+the removed `USE_OPENAI_ANSWERS` flag is not a runtime input.
+`CIVICLENS_CORS_ALLOWED_ORIGINS` remains a Blueprint `sync: false` value so the
+exact stable Vercel production origin is configured server-side rather than
+committed.
 
 The UI receives the generated HTTPS API URL through the API service's
 `RENDER_EXTERNAL_URL`; no `onrender.com` hostname is hardcoded. Its request
@@ -102,13 +108,14 @@ The existing bootstrap remains unchanged and runs:
 
 ```text
 ordered migrations -> manifest ingestion -> section-aware chunking
-                   -> deterministic embeddings/index preparation
+                   -> PostgreSQL metadata + dense-vector synchronization
 ```
 
 It uses stable IDs and upserts, does not reset the database, and never performs
 an automatic destructive reindex. An incompatible stored embedding profile
 fails clearly and requires explicit operator review. Historical migrations
-`0001` and `0002` are used unchanged.
+`0001` and `0002` remain unchanged; the current migration set also includes
+`0003_bounded_orchestration_metadata.sql`.
 
 The command can run again on a deploy, restart, or Free-service cold start.
 That tradeoff is acceptable for this time-limited demo because migrations are
@@ -156,52 +163,36 @@ The public response fields were limited to the provider-neutral answer
 contract. No retrieved chunk text, provider diagnostics, database URL,
 credentials, or raw provider payload appeared. OpenAI was disabled throughout.
 
-## Issue 19 Vercel deployment checkpoint
+## Issue 19 hosted deployment proof
 
-The repository now contains a locally validated Next.js product frontend under
-`frontend/`. Its answer path is a direct browser request to the existing Render
-FastAPI service:
+- Frontend: <https://civiclens-rag-nyc311.vercel.app>
+- API: <https://civiclens-api-o8ap.onrender.com>
+- API `GET /health`: HTTP `200`, status `ok`.
+- API `GET /ready`: HTTP `200`, status `ready`.
+- CORS: the explicit Render allowlist granted the stable Vercel origin
+  `https://civiclens-rag-nyc311.vercel.app`; no wildcard origin was used.
+- Grounded RAG: a supported documentation question reached the configured
+  OpenAI answer provider through hybrid retrieval and rendered the grounded
+  answer with CivicLens-validated citations and provenance.
+- Approved analytics: the hosted browser rendered an answered analytics result
+  from the existing deterministic allowlisted tools over checked-in sample CSV
+  outputs. No internal tool rows or unrestricted SQL interface were exposed.
+- Safe abstention: an unsupported question returned the normal abstained status,
+  safe answer text, and zero sources rather than a system error or fabricated
+  citation.
 
-```text
-Browser running Next.js -> Render FastAPI -> CivicLens orchestration
-                        -> PostgreSQL/pgvector -> answer + provenance
-```
-
-There is no Next.js API proxy, Server Action, database client, provider client,
-or JavaScript RAG path. Vercel deployment and hosted browser validation remain
-an explicit manual checkpoint; this documentation does not invent a Vercel URL
-or claim that the frontend is already hosted.
-
-Complete the checkpoint in this order:
-
-1. Review and publish the Issue 19 branch through the repository's normal human
-   workflow.
-2. In an authenticated Vercel account, create/select the frontend project with
-   `frontend/` as its root directory.
-3. Set `NEXT_PUBLIC_CIVICLENS_API_BASE_URL` to the existing public Render API
-   origin, with no path suffix. This value is public configuration, not a
-   secret.
-4. Complete a production deployment and record its exact stable HTTPS origin.
-5. In Render, set `CIVICLENS_CORS_ALLOWED_ORIGINS` to an explicit comma-separated
-   allowlist containing that exact Vercel origin and only any still-approved
-   local development origins. Never use `*`.
-6. Redeploy or restart `civiclens-api` so the new server-side CORS setting is
-   active. Startup must complete the normal corpus bootstrap before Uvicorn.
-7. Verify `/health`, `/ready`, an approved CORS preflight, a cited documentation
-   answer, an approved analytics answer, and a zero-source abstention from the
-   hosted browser on desktop and mobile.
-8. Only after those checks succeed, capture dated, secret-free evidence and add
-   a real demo URL or proof reference to the recruiter README.
-
-If README or architecture content changes while completing this checkpoint,
-refresh the supported manifest hashes and re-bootstrap the Render corpus before
-the final hosted evidence. Preview origins are not wildcarded; add a specific
-preview origin temporarily only when it is deliberately being tested.
+Secret-free hosted evidence is preserved in the grounded RAG, analytics, and
+safe-abstention screenshots under `docs/screenshots/`. The browser request path
+remains Vercel Next.js directly to Render FastAPI, then CivicLens orchestration
+and PostgreSQL/pgvector. Render Free instances may cold-start, so the first
+request can take longer than subsequent requests. This is a non-production
+portfolio deployment and carries no availability, reliability, or live NYC 311
+service claim.
 
 ## Manual Blueprint deployment
 
-1. Review, commit, and push the Issue 15 branch containing `render.yaml` only
-   after local human review.
+1. Review the current `render.yaml` on the deployment branch or `main` before
+   syncing the Blueprint.
 2. In the Render Dashboard, open **Blueprints** and choose **New Blueprint
    Instance**.
 3. Select the `civiclens-rag-nyc311` repository and the branch containing the
@@ -230,14 +221,19 @@ Live proof requires all of the following:
 
 - API `/health` returns `200`.
 - API `/ready` returns `200` after bootstrap.
+- The Vercel origin receives approved CORS access from Render FastAPI.
+- The Vercel frontend calls the public FastAPI answer contract directly.
 - Streamlit can submit a question through the generated API HTTPS URL.
 - A documentation question returns a grounded answer with validated source
   identifiers and provenance.
+- An approved analytics question returns through its deterministic allowlisted
+  tool path.
 - An unsupported question returns the safe no-answer behavior.
 - No raw database URL, password, provider payload, or stack trace appears in
   public responses or captured evidence.
 
-The dated checks above satisfy this checklist for the recorded deployment.
+The dated Issue 15 and Issue 19 checks above satisfy this checklist for the
+recorded non-production deployment.
 
 ## Free-tier and cost assumptions
 
@@ -271,5 +267,5 @@ security posture.
   take longer than a plain Uvicorn start.
 - The live URLs are time-limited evidence and may later be suspended or removed
   under the documented teardown procedure.
-- This is a curated, deterministic portfolio demo, not a production NYC 311
-  service or a production reliability claim.
+- This is a curated, bounded, non-production portfolio demo, not a production
+  NYC 311 service or a production reliability claim.

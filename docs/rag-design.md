@@ -258,7 +258,7 @@ Issue 18 adds `VECTOR_STORE_PROVIDER` (`pgvector` default or `pinecone`) and the
 
 Issue 11 does not change Issue 9 retrieval. Documentation questions still use its final retrieved chunks; predefined analytics remains a separate deterministic route.
 
-Answer-provider configuration uses `ANSWER_PROVIDER`, `ANSWER_MODEL`, `ANSWER_TIMEOUT_SECONDS`, and `ANSWER_MAX_RETRIES`. The existing `USE_OPENAI_ANSWERS` and `OPENAI_API_KEY` settings remain backward compatible: `USE_OPENAI_ANSWERS=true` selects OpenAI even when `.env.example` still contains its local default. Selecting OpenAI without credentials or encountering a timeout/provider failure triggers a controlled local fallback identified by a non-secret reason code. Provider abstention and an answered response without valid citations produce the safe no-answer result instead of a fallback-generated claim.
+Answer-provider configuration uses `ANSWER_PROVIDER`, `ANSWER_MODEL`, `ANSWER_TIMEOUT_SECONDS`, and `ANSWER_MAX_RETRIES`. `ANSWER_PROVIDER` is the single provider-selection setting: it defaults to `local`, while `openai` selects the OpenAI provider and uses `OPENAI_API_KEY` for credentials. Selecting OpenAI without credentials or encountering a timeout/provider failure triggers a controlled local fallback identified by a non-secret reason code. Provider abstention and an answered response without valid citations produce the safe no-answer result instead of a fallback-generated claim.
 
 Retries are bounded from zero through five and delegated to the OpenAI SDK. Authentication/configuration failures are mapped to a safe configuration failure rather than copied into application output. Settings and provider representations redact the API key.
 

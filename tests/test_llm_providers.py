@@ -110,14 +110,13 @@ def test_deterministic_provider_contract_works():
     assert provider.provider_name == "local"
 
 
-def test_answer_provider_configuration_and_legacy_flag(monkeypatch):
+def test_answer_provider_configuration_defaults_to_local(monkeypatch):
     monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
     for name in (
         "ANSWER_PROVIDER",
         "ANSWER_MODEL",
         "ANSWER_TIMEOUT_SECONDS",
         "ANSWER_MAX_RETRIES",
-        "USE_OPENAI_ANSWERS",
         "OPENAI_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -125,13 +124,7 @@ def test_answer_provider_configuration_and_legacy_flag(monkeypatch):
     local = Settings.from_env()
     assert local.answer_provider == "local"
     assert local.use_openai_answers is False
-
-    monkeypatch.setenv("USE_OPENAI_ANSWERS", "true")
-    monkeypatch.setenv("OPENAI_API_KEY", FAKE_KEY)
-    legacy = Settings.from_env()
-    assert legacy.answer_provider == "openai"
-    assert legacy.use_openai_answers is True
-    assert isinstance(build_answer_provider(legacy), OpenAIAnswerProvider)
+    assert isinstance(build_answer_provider(local), DeterministicAnswerProvider)
 
 
 def test_explicit_openai_configuration_is_bounded_and_configurable(monkeypatch):
@@ -145,9 +138,11 @@ def test_explicit_openai_configuration_is_bounded_and_configurable(monkeypatch):
     configured = Settings.from_env()
 
     assert configured.answer_provider == "openai"
+    assert configured.use_openai_answers is True
     assert configured.answer_model == "gpt-4o-mini"
     assert configured.answer_timeout_seconds == 15.5
     assert configured.answer_max_retries == 0
+    assert isinstance(build_answer_provider(configured), OpenAIAnswerProvider)
 
 
 def test_missing_credentials_are_rejected_without_exposing_a_key():
