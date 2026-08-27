@@ -11,38 +11,144 @@ import {
 } from "@/lib/api-client";
 
 const EXAMPLE_QUESTIONS = [
-  {
-    label: "Field definition",
-    question: "What does complaint_type mean?",
-  },
-  {
-    label: "Architecture",
-    question: "What is the local retrieval and cited answer flow?",
-  },
-  {
-    label: "Sample analytics",
-    question: "What are the top complaint types?",
-  },
-  {
-    label: "Safe abstention",
-    question: "Explain the orbital pineapple parking treaty.",
-  },
+  "What does complaint_type mean?",
+  "What are the top complaint types?",
+  "What is the local retrieval and cited answer flow?",
+  "What is the verified Issue 19 browser request path and hosted RAG configuration?",
+  "Explain the orbital pineapple parking treaty.",
 ] as const;
 
-const SYSTEM_PATH = [
-  ["Interface", "Next.js client"],
-  ["Contract", "FastAPI"],
-  ["Intelligence", "Hybrid RAG"],
-  ["Authority", "PostgreSQL + pgvector"],
-] as const;
+const PRIMARY_EXAMPLE_COUNT = 2;
+
+type ProductIconName =
+  | "analytics"
+  | "citation"
+  | "database"
+  | "evidence"
+  | "retrieval"
+  | "sparkle"
+  | "shield";
+
+const CAPABILITIES = [
+  {
+    icon: "evidence",
+    label: "Grounded RAG",
+    description: "Answers grounded in documentation",
+  },
+  {
+    icon: "analytics",
+    label: "Analytics",
+    description: "Approved sample analytics",
+  },
+  {
+    icon: "shield",
+    label: "Safe abstention",
+    description: "No answer when evidence is insufficient",
+  },
+] as const satisfies ReadonlyArray<{
+  icon: ProductIconName;
+  label: string;
+  description: string;
+}>;
+
+const TECHNICAL_PROOF = [
+  {
+    icon: "retrieval",
+    label: "Hybrid retrieval",
+    description: "Semantic + lexical evidence",
+  },
+  {
+    icon: "citation",
+    label: "Validated citations",
+    description: "Backend-owned provenance",
+  },
+  {
+    icon: "shield",
+    label: "Safe abstention",
+    description: "No unsupported answer",
+  },
+  {
+    icon: "database",
+    label: "PostgreSQL + pgvector",
+    description: "Retrieval infrastructure",
+  },
+] as const satisfies ReadonlyArray<{
+  icon: ProductIconName;
+  label: string;
+  description: string;
+}>;
 
 interface CivicLensExperienceProps {
   askQuestion?: AskQuestion;
 }
 
+function ProductIcon({ name }: { name: ProductIconName }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="product-icon"
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      {name === "evidence" && (
+        <>
+          <path d="M7 3.75h7l3 3v13.5H7z" />
+          <path d="M14 3.75v3h3M9.5 13l1.6 1.6 3.6-3.6" />
+        </>
+      )}
+      {name === "analytics" && (
+        <>
+          <path d="M4 19.5h16M6 17v-5M12 17V6.5M18 17V9" />
+          <path d="m5.5 8.5 4-3 3.5 2 5-4" />
+        </>
+      )}
+      {name === "shield" && (
+        <>
+          <path d="M12 3.5 19 6v5c0 4.5-2.9 7.8-7 9.5-4.1-1.7-7-5-7-9.5V6z" />
+          <path d="M9 12h6" />
+        </>
+      )}
+      {name === "retrieval" && (
+        <>
+          <path d="m7 8.5 5-3 5 3M7 15.5l5 3 5-3M7 8.5v7M17 8.5v7" />
+          <circle cx="7" cy="8.5" r="1.5" />
+          <circle cx="17" cy="8.5" r="1.5" />
+          <circle cx="7" cy="15.5" r="1.5" />
+          <circle cx="17" cy="15.5" r="1.5" />
+        </>
+      )}
+      {name === "sparkle" && (
+        <>
+          <path d="M12 3.5c.45 4.65 2.85 7.05 7.5 7.5-4.65.45-7.05 2.85-7.5 7.5-.45-4.65-2.85-7.05-7.5-7.5 4.65-.45 7.05-2.85 7.5-7.5Z" />
+          <path d="M18.5 3.5c.13 1.37.83 2.07 2.2 2.2-1.37.13-2.07.83-2.2 2.2-.13-1.37-.83-2.07-2.2-2.2 1.37-.13 2.07-.83 2.2-2.2Z" />
+        </>
+      )}
+      {name === "citation" && (
+        <>
+          <path d="M7 3.75h7l3 3v13.5H7z" />
+          <path d="M14 3.75v3h3M9.5 13l1.6 1.6 3.6-3.6" />
+        </>
+      )}
+      {name === "database" && (
+        <>
+          <ellipse cx="12" cy="6" rx="6.5" ry="2.5" />
+          <path d="M5.5 6v6c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V6" />
+          <path d="M5.5 12v6c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-6" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 function routeLabel(response: AnswerResponse): string {
   if (response.status === "abstained") return "Safe abstention";
   return response.route === "rag" ? "Grounded RAG" : "Approved analytics";
+}
+
+function resultBoundaryLabel(response: AnswerResponse): string {
+  if (response.status === "abstained") return "Zero fabricated sources";
+  return response.route === "rag" ? "Validated by backend" : "Approved tool result";
 }
 
 function errorTitle(kind: CivicLensClientError["kind"]): string {
@@ -64,7 +170,9 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
   const [response, setResponse] = useState<AnswerResponse | null>(null);
   const [error, setError] = useState<CivicLensClientError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [examplesExpanded, setExamplesExpanded] = useState(false);
   const requestPending = useRef(false);
+  const questionInput = useRef<HTMLTextAreaElement>(null);
 
   const submitQuestion = async () => {
     const normalizedQuestion = question.trim();
@@ -104,6 +212,11 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
     }
   };
 
+  const selectExample = (example: string) => {
+    setQuestion(example);
+    questionInput.current?.focus();
+  };
+
   return (
     <main id="top">
       <header className="site-header">
@@ -116,7 +229,7 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
         </a>
         <div className="header-actions">
           <nav className="primary-nav" aria-label="Primary navigation">
-            <a href="#main-workspace">Try demo</a>
+            <a href="#main-workspace">Demo</a>
             <a href="#system-architecture">Architecture</a>
             <a href="https://github.com/rihua-tech/civiclens-rag-nyc311">GitHub</a>
           </nav>
@@ -125,106 +238,113 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
       </header>
 
       <section className="hero" aria-labelledby="page-title">
-        <div className="hero-copy-block">
-          <div className="eyebrow"><span /> Evidence-first civic intelligence</div>
-          <h1 id="page-title">Ask the system.<br /><em>Inspect the evidence.</em></h1>
-          <p className="hero-copy">
-            CivicLens pairs hybrid retrieval with grounded generation, application-owned
-            citation validation, and safe abstention over a curated NYC 311 knowledge base.
-          </p>
-          <div className="hero-actions">
-            <a className="primary-cta" href="#main-workspace">
-              Try CivicLens <span aria-hidden="true">↓</span>
-            </a>
-            <a className="secondary-link" href="#system-architecture">View architecture</a>
-          </div>
-        </div>
-
-        <aside className="hero-proof" aria-labelledby="system-proof-heading">
-          <span className="proof-kicker">System proof</span>
-          <h2 id="system-proof-heading">Why the answer is defensible.</h2>
-          <dl>
-            <div>
-              <dt>Hybrid retrieval</dt>
-              <dd>Semantic + lexical evidence</dd>
-            </div>
-            <div>
-              <dt>Grounded answers</dt>
-              <dd>Answers stay constrained to retrieved evidence</dd>
-            </div>
-            <div>
-              <dt>Validated citations</dt>
-              <dd>Backend-owned provenance</dd>
-            </div>
-            <div>
-              <dt>Safe abstention</dt>
-              <dd>No answer when evidence is insufficient</dd>
-            </div>
-          </dl>
-        </aside>
+        <h1 id="page-title">Ask the system. <em>Inspect the evidence.</em></h1>
+        <p>
+          Hybrid retrieval, grounded generation, validated citations, and safe abstention
+          over NYC 311 knowledge.
+        </p>
       </section>
 
-      <section
-        className="system-path"
-        id="system-architecture"
-        aria-label="CivicLens application path"
-      >
-        {SYSTEM_PATH.map(([label, value], index) => (
-          <div className="system-node" key={label}>
-            <span className="node-number">0{index + 1}</span>
-            <span><small>{label}</small><strong>{value}</strong></span>
-          </div>
-        ))}
-      </section>
-
-      <section className="workspace" id="main-workspace" aria-label="CivicLens question workspace">
+      <section className="workspace" id="main-workspace" aria-label="CivicLens AI assistant">
         <div className="question-panel">
-          <div className="panel-kicker">Start with a scenario</div>
-          <h2>Choose a question or write your own.</h2>
-          <div className="example-grid" aria-label="Example questions">
-            {EXAMPLE_QUESTIONS.map((example) => (
-              <button
-                className="example-button"
-                disabled={isLoading}
-                key={example.label}
-                onClick={() => setQuestion(example.question)}
-                type="button"
-              >
-                <span>{example.label}</span>
-                {example.question}
-              </button>
-            ))}
+          <div className="composer-heading">
+            <span className="composer-mark"><ProductIcon name="sparkle" /></span>
+            <h2>What would you like to know about NYC 311?</h2>
           </div>
 
           <form onSubmit={handleSubmit} className="question-form">
-            <label htmlFor="civiclens-question">Question</label>
+            <label className="visually-hidden" htmlFor="civiclens-question">Question</label>
             <div className="input-shell">
               <textarea
+                aria-describedby="question-shortcuts question-count"
                 id="civiclens-question"
                 maxLength={MAX_QUESTION_LENGTH}
                 onChange={(event) => setQuestion(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about NYC 311 fields, the CivicLens architecture, or approved sample analytics…"
-                rows={4}
+                placeholder="Ask about complaint types, fields, runbooks, analytics, or documentation…"
+                ref={questionInput}
+                rows={3}
                 value={question}
               />
-              <div className="input-meta">
-                <span>Enter to ask · Shift + Enter for a new line</span>
-                <span>{question.length.toLocaleString()} / {MAX_QUESTION_LENGTH.toLocaleString()}</span>
-              </div>
             </div>
-            <button
-              className="submit-button"
-              disabled={!question.trim() || isLoading}
-              type="submit"
-            >
-              <span>{isLoading ? "Checking evidence…" : "Ask CivicLens"}</span>
-              <span className="button-arrow" aria-hidden="true">→</span>
-            </button>
+
+            <div className="composer-action-row">
+              <button
+                aria-busy={isLoading}
+                className="submit-button"
+                disabled={!question.trim() || isLoading}
+                type="submit"
+              >
+                <span>{isLoading ? "Checking evidence…" : "Ask CivicLens"}</span>
+                {isLoading ? (
+                  <span className="submit-spinner" aria-hidden="true" />
+                ) : (
+                  <span className="button-arrow" aria-hidden="true">→</span>
+                )}
+              </button>
+              <span className="keyboard-hint" id="question-shortcuts">
+                <kbd>Enter</kbd> to send <span aria-hidden="true">·</span> Shift + Enter for new line
+              </span>
+              <span className="character-count" id="question-count">
+                {question.length.toLocaleString()} / {MAX_QUESTION_LENGTH.toLocaleString()}
+              </span>
+            </div>
           </form>
+
+          <div className="prompt-suggestions" aria-label="Example questions">
+            <span className="prompt-label">Try a prompt</span>
+            <div className="prompt-list">
+              {EXAMPLE_QUESTIONS.slice(0, PRIMARY_EXAMPLE_COUNT).map((example) => (
+                <button
+                  className="prompt-button"
+                  disabled={isLoading}
+                  key={example}
+                  onClick={() => selectExample(example)}
+                  type="button"
+                >
+                  {example}
+                </button>
+              ))}
+              <button
+                aria-controls="additional-examples"
+                aria-expanded={examplesExpanded}
+                className="prompt-toggle"
+                disabled={isLoading}
+                onClick={() => setExamplesExpanded((current) => !current)}
+                type="button"
+              >
+                {examplesExpanded ? "Fewer examples" : "More examples"}
+                <span aria-hidden="true">⌄</span>
+              </button>
+            </div>
+            <div
+              className="additional-examples"
+              hidden={!examplesExpanded}
+              id="additional-examples"
+            >
+              {EXAMPLE_QUESTIONS.slice(PRIMARY_EXAMPLE_COUNT).map((example) => (
+                <button
+                  className="prompt-button"
+                  disabled={isLoading}
+                  key={example}
+                  onClick={() => selectExample(example)}
+                  type="button"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+
         </div>
 
-        <div className="answer-panel" aria-busy={isLoading} aria-live="polite">
+        <div
+          className={`answer-panel${error ? " answer-panel-error" : ""}${
+            !isLoading && !error && !response ? " answer-panel-empty" : ""
+          }`}
+          aria-busy={isLoading}
+          aria-live="polite"
+        >
           {isLoading && (
             <div className="state-card loading-state" role="status">
               <span className="loading-pulse" aria-hidden="true" />
@@ -249,28 +369,29 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
           )}
 
           {!isLoading && response && (
-            <article
-              className={`result-card result-${response.status} result-${response.route}`}
-            >
+            <article className={`result-card result-${response.status} result-${response.route}`}>
               <header className="result-header">
-                <div>
-                  <span className="state-label">Public answer contract</span>
-                  <h2>{routeLabel(response)}</h2>
-                </div>
-                <div className="result-tags" aria-label="Answer route and status">
-                  <span>{response.route === "rag" ? "RAG" : "Analytics"}</span>
-                  <span>{response.status === "answered" ? "Answered" : "Abstained"}</span>
-                </div>
+                <h2>{routeLabel(response)}</h2>
+                <span className="result-validation">
+                  {response.status === "answered" && response.route === "rag" && (
+                    <span aria-hidden="true">✓</span>
+                  )}
+                  <span>{resultBoundaryLabel(response)}</span>
+                </span>
               </header>
 
               <div className="answer-copy">
+                <span className="content-label">Answer</span>
                 <p>{response.answer}</p>
               </div>
 
               {response.confidence_note && (
                 <aside className="confidence-note">
-                  <strong>Evidence note</strong>
-                  <p>{response.confidence_note}</p>
+                  <span className="confidence-marker"><ProductIcon name="shield" /></span>
+                  <span>
+                    <strong>Evidence note</strong>
+                    <p>{response.confidence_note}</p>
+                  </span>
                 </aside>
               )}
 
@@ -291,13 +412,22 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
                 ) : (
                   <div className="source-list">
                     {response.sources.map((source) => (
-                      <article className="source-card" key={`${source.chunk_id}-${source.citation_number ?? "source"}`}>
+                      <article
+                        className="source-card"
+                        key={`${source.chunk_id}-${source.citation_number ?? "source"}`}
+                      >
                         <div className="source-card-topline">
-                          <span>{source.citation_number ? `Citation ${source.citation_number}` : "Provenance"}</span>
+                          <span>
+                            {source.citation_number
+                              ? `Citation ${source.citation_number}`
+                              : "Provenance"}
+                          </span>
                           <span>Validated by backend</span>
                         </div>
                         <h4>{source.source_name}</h4>
-                        {source.section_title && <p className="section-title">{source.section_title}</p>}
+                        {source.section_title && (
+                          <p className="section-title">{source.section_title}</p>
+                        )}
                         <code>{source.source_path}</code>
                         <details>
                           <summary>Technical provenance</summary>
@@ -325,24 +455,43 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
 
           {!isLoading && !error && !response && (
             <div className="state-card empty-state">
-              <span className="state-index" aria-hidden="true">01</span>
+              <span className="evidence-marker"><ProductIcon name="evidence" /></span>
               <div>
                 <span className="state-label">Evidence panel</span>
-                <h2>Answers stay attached to their provenance.</h2>
+                <h2>Your answer will arrive with its evidence attached.</h2>
                 <p>
-                  Ask a supported documentation or sample analytics question. CivicLens will
-                  return only its public answer fields—never raw chunks, internal tool rows,
-                  or provider diagnostics.
+                  Ask a documentation or approved sample analytics question. CivicLens
+                  returns its public answer fields without exposing provider diagnostics or
+                  internal tool rows.
                 </p>
-                <ul className="state-guide">
-                  <li><span /> Grounded RAG with validated citations</li>
-                  <li><span /> Approved analytics with sample-data provenance</li>
-                  <li><span /> Safe abstention when evidence is insufficient</li>
-                </ul>
+              </div>
+              <div className="capability-strip" aria-label="CivicLens answer behaviors">
+                {CAPABILITIES.map(({ description, icon, label }) => (
+                  <div className="capability-item" key={label}>
+                    <span className="capability-marker"><ProductIcon name={icon} /></span>
+                    <span><strong>{label}</strong><small>{description}</small></span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
         </div>
+      </section>
+
+      <section
+        className="technical-proof"
+        id="system-architecture"
+        aria-label="CivicLens technical proof"
+      >
+        {TECHNICAL_PROOF.map(({ description, icon, label }) => (
+          <div key={label}>
+            <span className="proof-marker"><ProductIcon name={icon} /></span>
+            <span className="proof-copy">
+              <strong>{label}</strong>
+              <span>{description}</span>
+            </span>
+          </div>
+        ))}
       </section>
 
       <footer className="site-footer">
