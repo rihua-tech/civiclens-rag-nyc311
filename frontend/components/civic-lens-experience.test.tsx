@@ -36,9 +36,13 @@ describe("CivicLensExperience", () => {
     const askQuestion = vi.fn(async () => RAG_RESPONSE);
     render(<CivicLensExperience askQuestion={askQuestion} />);
 
-    await user.click(screen.getByRole("button", { name: /Field definition/i }));
+    await user.click(
+      screen.getByRole("button", { name: "What does complaint_type mean?" }),
+    );
     await user.click(screen.getByRole("button", { name: "Ask CivicLens" }));
 
+    expect(askQuestion).toHaveBeenCalledOnce();
+    expect(askQuestion).toHaveBeenCalledWith("What does complaint_type mean?");
     expect(await screen.findByRole("heading", { name: "Grounded RAG" })).toBeVisible();
     expect(screen.getByText(RAG_RESPONSE.answer)).toBeVisible();
     expect(screen.getByText("Citation 4")).toBeVisible();
@@ -47,6 +51,7 @@ describe("CivicLensExperience", () => {
     expect(screen.getByText("Request metadata")).toBeVisible();
     expect(screen.getByText(RAG_RESPONSE.query_id)).toBeInTheDocument();
     expect(screen.queryByText("Citation 1")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Validated by backend")).toHaveLength(2);
   });
 
   it("renders an answered analytics response only through public answer fields", async () => {
@@ -69,7 +74,10 @@ describe("CivicLensExperience", () => {
     await enterQuestion(user, "What are the top complaint types?");
     await user.click(screen.getByRole("button", { name: "Ask CivicLens" }));
 
+    expect(askQuestion).toHaveBeenCalledOnce();
+    expect(askQuestion).toHaveBeenCalledWith("What are the top complaint types?");
     expect(await screen.findByRole("heading", { name: "Approved analytics" })).toBeVisible();
+    expect(screen.getByText("Approved tool result")).toBeVisible();
     expect(screen.getByText("top_complaint_types.csv")).toBeVisible();
     expect(screen.queryByText("Request metadata")).not.toBeInTheDocument();
     expect(screen.queryByText("complaint_type")).not.toBeInTheDocument();
@@ -92,10 +100,108 @@ describe("CivicLensExperience", () => {
     expect(await screen.findByRole("heading", { name: "Safe abstention" })).toBeVisible();
     expect(screen.getByText("No sources returned")).toBeVisible();
     expect(screen.getByText("0 returned")).toBeVisible();
+    expect(screen.getByText("Zero fabricated sources")).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("prevents duplicate submissions while a request is pending", async () => {
+  it("keeps additional prompt guidance collapsed until requested", async () => {
+    const user = userEvent.setup();
+    render(<CivicLensExperience />);
+
+    const toggle = screen.getByRole("button", { name: "More examples" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("button", {
+        name: "What is the local retrieval and cited answer flow?",
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(screen.getByRole("button", { name: "Fewer examples" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "What is the local retrieval and cited answer flow?",
+      }),
+    );
+    expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(
+      "What is the local retrieval and cited answer flow?",
+    );
+    expect(screen.getByRole("textbox", { name: "Question" })).toHaveFocus();
+  });
+
+  it("shows capability guidance only inside the empty Evidence Panel", async () => {
+    const user = userEvent.setup();
+    const askQuestion = vi.fn(async () => RAG_RESPONSE);
+    render(<CivicLensExperience askQuestion={askQuestion} />);
+
+    const capabilityStrip = screen.getByLabelText("CivicLens answer behaviors");
+    expect(capabilityStrip.closest(".answer-panel")).toBeInTheDocument();
+    expect(capabilityStrip.closest(".question-panel")).toBeNull();
+
+    await enterQuestion(user, "What does complaint_type mean?");
+    await user.click(screen.getByRole("button", { name: "Ask CivicLens" }));
+
+    expect(await screen.findByRole("heading", { name: "Grounded RAG" })).toBeVisible();
+    expect(screen.queryByLabelText("CivicLens answer behaviors")).not.toBeInTheDocument();
+  });
+
+  it("enters the loading state immediately after one submit-button click", async () => {
+    const user = userEvent.setup();
+    let resolveRequest: ((value: typeof RAG_RESPONSE) => void) | undefined;
+    const askQuestion = vi.fn(
+      () =>
+        new Promise<typeof RAG_RESPONSE>((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    render(<CivicLensExperience askQuestion={askQuestion} />);
+
+    await enterQuestion(user, "What does complaint_type mean?");
+    await user.click(screen.getByRole("button", { name: "Ask CivicLens" }));
+
+    expect(askQuestion).toHaveBeenCalledOnce();
+    expect(askQuestion).toHaveBeenCalledWith("What does complaint_type mean?");
+    expect(screen.getByRole("button", { name: "Checking evidence…" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Checking evidence…" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Reviewing the available evidence…",
+    );
+
+    resolveRequest?.(RAG_RESPONSE);
+    expect(await screen.findByRole("heading", { name: "Grounded RAG" })).toBeVisible();
+  });
+
+  it("prevents repeated submit-button clicks while a request is pending", async () => {
+    const user = userEvent.setup();
+    let resolveRequest: ((value: typeof RAG_RESPONSE) => void) | undefined;
+    const askQuestion = vi.fn(
+      () =>
+        new Promise<typeof RAG_RESPONSE>((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    render(<CivicLensExperience askQuestion={askQuestion} />);
+
+    await enterQuestion(user, "What does complaint_type mean?");
+    const submitButton = screen.getByRole("button", { name: "Ask CivicLens" });
+    fireEvent.click(submitButton);
+    fireEvent.click(submitButton);
+
+    expect(askQuestion).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Checking evidence…" })).toBeDisabled();
+
+    resolveRequest?.(RAG_RESPONSE);
+    expect(await screen.findByRole("heading", { name: "Grounded RAG" })).toBeVisible();
+  });
+
+  it("submits once with Enter and keeps Shift + Enter as a newline gesture", async () => {
     const user = userEvent.setup();
     let resolveRequest: ((value: typeof RAG_RESPONSE) => void) | undefined;
     const askQuestion = vi.fn(
@@ -107,11 +213,14 @@ describe("CivicLensExperience", () => {
     render(<CivicLensExperience askQuestion={askQuestion} />);
 
     const input = await enterQuestion(user, "What does complaint_type mean?");
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(askQuestion).not.toHaveBeenCalled();
+
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(askQuestion).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "Checking evidence…" })).toBeDisabled();
+    expect(askQuestion).toHaveBeenCalledWith("What does complaint_type mean?");
 
     resolveRequest?.(RAG_RESPONSE);
     expect(await screen.findByRole("heading", { name: "Grounded RAG" })).toBeVisible();
