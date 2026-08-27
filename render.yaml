@@ -26,8 +26,6 @@ services:
         value: "false"
       - key: ANSWER_PROVIDER
         value: local
-      - key: USE_OPENAI_ANSWERS
-        value: "false"
       - key: USE_OPENAI_EMBEDDINGS
         value: "false"
       - key: OBSERVABILITY_ENABLED

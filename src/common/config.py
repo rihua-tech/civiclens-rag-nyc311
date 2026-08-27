@@ -255,7 +255,6 @@ class Settings:
             embedding_model = configured_model or DEFAULT_SEMANTIC_MODEL
             default_dimension = DEFAULT_SEMANTIC_DIMENSION
 
-        legacy_use_openai_answers = env_flag("USE_OPENAI_ANSWERS", default=False)
         configured_answer_provider = os.getenv("ANSWER_PROVIDER", "").strip().lower()
         if configured_answer_provider and configured_answer_provider not in {
             LOCAL_ANSWER_PROVIDER,
@@ -265,11 +264,7 @@ class Settings:
                 "ANSWER_PROVIDER must be either "
                 f"{LOCAL_ANSWER_PROVIDER!r} or {OPENAI_ANSWER_PROVIDER!r}"
             )
-        answer_provider = (
-            OPENAI_ANSWER_PROVIDER
-            if legacy_use_openai_answers
-            else configured_answer_provider or LOCAL_ANSWER_PROVIDER
-        )
+        answer_provider = configured_answer_provider or LOCAL_ANSWER_PROVIDER
         orchestration_mode = os.getenv(
             "ORCHESTRATION_MODE",
             DIRECT_ORCHESTRATION_MODE,
