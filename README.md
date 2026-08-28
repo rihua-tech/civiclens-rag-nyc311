@@ -4,22 +4,51 @@
 
 ## What is CivicLens?
 
-CivicLens is a non-production AI Engineering and RAG Engineering portfolio project built on a curated NYC 311 knowledge corpus. It combines section-aware ingestion, semantic and PostgreSQL lexical retrieval, Reciprocal Rank Fusion (RRF), grounded generation, and validated citations behind FastAPI. A recruiter-facing Next.js product UI and the existing Streamlit engineering UI both consume that public contract; PostgreSQL + pgvector and native CivicLens RAG remain the defaults. The repository also demonstrates bounded analytics tools and orchestration, reproducible evaluation, offline-safe CI, Docker Compose, and dated cloud deployment proof on top of a strong data-engineering foundation.
+CivicLens is an AI-powered NYC 311 knowledge assistant that answers documentation questions from retrieved evidence, returns validated citations, and safely abstains when evidence is insufficient. Its product stack combines a Next.js interface, FastAPI application boundary, hybrid RAG, and PostgreSQL + pgvector.
 
-**Live portfolio demo:** <https://civiclens-rag-nyc311.vercel.app> — a non-production deployment that may pause while its Render backend cold-starts.
+The project emphasizes traceable ingestion, measurable retrieval, reproducible evaluation, citation safety, and bounded sample analytics. It is intentionally a non-production AI Engineering / RAG Engineering portfolio system, not a live municipal service.
+
+## Live Demo / Hosted Proof
+
+**Try CivicLens:** <https://civiclens-rag-nyc311.vercel.app>
+
+![CivicLens AI assistant returning a grounded answer with backend-validated citations](docs/screenshots/issue20-vercel-grounded-rag.png)
+
+The browser calls Render FastAPI directly. Grounded RAG answers use retrieved evidence and CivicLens-owned citation validation; approved analytics reads checked-in sample CSV outputs; unsupported questions abstain with zero fabricated sources.
+
+[View Approved Analytics proof](docs/screenshots/issue20-vercel-analytics.png) · [View Safe Abstention proof](docs/screenshots/issue20-vercel-safe-abstention.png)
+
+The hosted deployment is non-production and may pause while its Render backend cold-starts.
 
 ## Proof at a Glance
 
-- **Traceable knowledge:** a version-controlled source manifest validates normalized content hashes, provenance, stable document IDs, and stable section-aware chunk IDs.
-- **Advanced retrieval:** dense semantic candidates and PostgreSQL full-text candidates are fused with deterministic RRF, with optional bounded cross-encoder reranking.
-- **Measured behavior:** on the approved 14-question real-local retrieval subset, hybrid search reached `0.8393` Recall@5 and `0.9286` expected-source retrieval.
-- **Grounded responses:** answer generation receives allow-listed evidence, while application-owned validation rejects fabricated citations and safely abstains when evidence is insufficient.
-- **Controlled AI workflows:** four typed, allowlisted, read-only sample analytics tools share the FastAPI boundary with document RAG; direct orchestration is default and bounded LangGraph is optional.
-- **Portable without replacement:** pgvector is the default dense store, Pinecone is opt-in, and LangChain Core is a thin optional document/retriever adapter over native CivicLens retrieval.
-- **Runnable application:** Next.js provides the recruiter-facing product experience, while Streamlit remains the engineering/debug UI; both consume the versioned FastAPI contract.
-- **Auditable delivery:** GitHub Actions isolates core/native, bounded LangGraph, mocked Pinecone, LangChain Core, and frontend quality paths without paid APIs or live application services.
+- **Traceable knowledge:** a version-controlled manifest validates normalized hashes, provenance, stable document IDs, and section-aware chunk IDs.
+- **Hybrid retrieval:** dense semantic and PostgreSQL full-text candidates are fused with deterministic Reciprocal Rank Fusion (RRF), with optional bounded reranking.
+- **Measured performance:** on the approved 14-question real-local retrieval subset, hybrid search reached `0.8393` Recall@5 and `0.9286` expected-source retrieval.
+- **Grounded and safe answers:** generation receives allowlisted evidence; application-owned validation rejects fabricated citations and safely abstains when evidence is insufficient.
+- **Bounded AI workflows:** four typed, allowlisted, read-only analytics tools share the FastAPI boundary with document RAG; direct orchestration is default and bounded LangGraph is optional.
+- **Runnable and auditable:** Next.js and Streamlit consume the versioned API contract, while Docker and isolated CI paths provide reproducible application and delivery proof.
 
 ## Architecture
+
+The hosted product path keeps RAG and approved analytics separate:
+
+```text
+Browser
+  ↓
+Vercel Next.js
+  ↓
+Render FastAPI
+  ↓
+CivicLens orchestration
+  ├─ Hybrid RAG → PostgreSQL + pgvector
+  └─ Approved Analytics → checked-in sample CSV outputs
+```
+
+Next.js is a presentation client only; Render FastAPI remains the AI application boundary. The hosted RAG configuration uses Sentence Transformers embeddings, hybrid retrieval, and `ANSWER_PROVIDER=openai` for grounded generation. OpenAI receives retrieved evidence, and CivicLens validates citations before returning the public answer.
+
+<details>
+<summary>View full technical architecture</summary>
 
 ```mermaid
 flowchart TD
@@ -66,50 +95,58 @@ flowchart TD
     rerank -.-> langchain
 ```
 
-PostgreSQL remains authoritative even when Pinecone supplies dense candidates. The analytics branch never executes arbitrary SQL or code, and the LangChain Core adapter maps native retrieval results into framework document types rather than creating a second RAG, answer, citation, or orchestration backend.
+</details>
 
-The verified hosted path is **Browser → Vercel Next.js → Render FastAPI → PostgreSQL + pgvector**. Supported documentation questions use hybrid retrieval and the configured OpenAI answer provider, constrained to retrieved evidence with CivicLens-validated citations. Approved analytics use deterministic allowlisted tools over checked-in sample CSV outputs, while unsupported questions safely abstain with zero fabricated sources.
+PostgreSQL remains authoritative for document/chunk text, metadata, provenance, hashes, corpus identity, and lexical retrieval. pgvector is the default dense store; Pinecone is optional. Native CivicLens RAG and direct orchestration remain the defaults, bounded LangGraph is optional, and LangChain Core is a compatibility adapter rather than a second RAG backend. Streamlit remains the engineering/debug UI.
+
+## Evaluation
+
+The approved real-local Advanced RAG comparison uses a **24-question curated fixture**, with **14 retrieval-eligible questions**, section-level relevance, PostgreSQL/pgvector, and cached local models.
+
+| Strategy | Recall@5 | MRR | Expected source |
+|---|---:|---:|---:|
+| Semantic | 0.6607 | 0.5857 | 0.7857 |
+| Hybrid | 0.8393 | 0.7071 | 0.9286 |
+| Hybrid + reranking | 0.8214 | 0.7619 | 0.9286 |
+
+This is a small portfolio benchmark, not evidence of production reliability, benchmark leadership, or statistical significance. Known failures remain visible: four questions expected to abstain were answered, and one adversarial question routed to predefined analytics. See the [evaluation report](docs/evaluation-report.md) and [methodology](docs/evaluation-notes.md).
 
 ## Key Capabilities
 
 | Area | Current capability |
 |---|---|
-| Data foundation | Curated NYC 311 field knowledge and project runbooks; manifest-controlled ingestion; normalized hashes; stable identities; section and heading provenance |
+| Data foundation | Curated NYC 311 field knowledge and runbooks; manifest-controlled ingestion; normalized hashes; stable identities; section and heading provenance |
 | Retrieval | CivicLens-generated embeddings; pgvector semantic search; PostgreSQL full-text search; deterministic RRF; optional bounded reranking |
 | Grounding and safety | Context-only generation, stable chunk citations, application-owned provenance reconstruction, citation validation, and safe no-answer behavior |
-| Analytics tools | Four fixed CSV-backed tools with strict typed inputs, immutable allowlisting, bounded results, read-only execution, and explicit sample-data provenance |
-| Application boundary | FastAPI validation and sanitized errors; direct typed Next.js browser client; Streamlit engineering client; liveness/readiness; unchanged provider-neutral answer contract |
+| Analytics tools | Four fixed CSV-backed tools with typed inputs, immutable allowlisting, bounded results, read-only execution, and sample-data provenance |
+| Application boundary | FastAPI validation and sanitized errors; direct typed Next.js browser client; Streamlit engineering client; liveness/readiness; provider-neutral answer contract |
 | Orchestration | Dependency-free direct mode by default; optional acyclic LangGraph workflow with bounded steps and one analytics-tool call maximum |
-| Portability | PostgreSQL + pgvector and native CivicLens RAG by default; optional Pinecone dense retrieval and optional LangChain Core retriever/document compatibility |
+| Portability | PostgreSQL + pgvector and native CivicLens RAG by default; optional Pinecone dense retrieval and optional LangChain Core compatibility |
 | Observability | Opt-in privacy-conscious query/retrieval metadata and bounded feedback without persisting raw questions, answers, chunks, vectors, or credentials |
 | Delivery | Docker Compose, ordered migrations, rerun-safe bootstrap, dated Render/Vercel proof, pytest, Vitest, Ruff, ESLint, TypeScript, production builds, and offline-safe CI |
 
-## Live Demo / Hosted Proof
+## Tech Stack
 
-### Grounded answer with validated citations
+| Layer | Technologies |
+|---|---|
+| AI / RAG | Python, Sentence Transformers, optional OpenAI, optional bounded LangGraph, optional LangChain Core |
+| Retrieval | PostgreSQL 16, pgvector, PostgreSQL full-text search, RRF, optional cross-encoder reranking, optional Pinecone |
+| Application | FastAPI, Pydantic, Uvicorn, Next.js, TypeScript, Zod, Streamlit |
+| Data / operations | SQL migrations, manifest-based ingestion, Docker Compose, Render Blueprint |
+| Quality | pytest, Vitest, Testing Library, Ruff, ESLint, TypeScript, compileall, GitHub Actions |
 
-![Hosted CivicLens grounded RAG answer with validated citations](docs/screenshots/issue19-vercel-grounded-rag.png)
-
-The hosted frontend submits a supported documentation question directly to Render FastAPI. The configured OpenAI provider generates only from retrieved evidence, and CivicLens validates the returned citations before exposing the public answer.
-
-### Approved sample analytics
-
-![Hosted CivicLens approved analytics answer with sample-data provenance](docs/screenshots/issue19-vercel-analytics.png)
-
-The analytics route reads only checked-in sample CSV outputs through fixed tool definitions. See the hosted [safe-abstention proof](docs/screenshots/issue19-vercel-safe-abstention.png), which returns zero sources rather than fabricating evidence.
+GitHub Actions independently validates **core/native**, **bounded LangGraph**, **optional Pinecone**, **optional LangChain Core**, and **frontend** paths. Required CI uses local fixtures and mocked provider calls—no paid APIs, model downloads, or live external application services.
 
 ## How RAG Works
 
-1. The source manifest authorizes each document and validates its normalized SHA-256 content hash before ingestion.
-2. Markdown is split within heading boundaries; chunks retain stable document/chunk IDs, section paths, source provenance, hashes, and chunking metadata.
-3. CivicLens generates embeddings with the selected provider. The default real-local profile uses Sentence Transformers; deterministic embeddings support offline CI.
-4. The selected dense store returns bounded cosine-scored candidates: pgvector by default or explicitly configured Pinecone. Pinecone IDs and scores are accepted only after PostgreSQL hydration and current-corpus validation.
-5. PostgreSQL independently retrieves bounded lexical candidates with full-text search, regardless of the dense provider.
-6. RRF deterministically fuses semantic and lexical rankings; an optional cross-encoder reranks only the configured candidate window.
-7. Native CivicLens generation receives only the question and allow-listed retrieved evidence.
-8. CivicLens validates stable chunk citations, rebuilds provenance from trusted retrieval metadata, and converts unsupported or uncited claims to the safe no-answer response.
+1. The source manifest authorizes documents and validates normalized SHA-256 hashes before ingestion.
+2. Section-aware chunking preserves headings, stable identities, source provenance, hashes, and chunking metadata.
+3. CivicLens generates embeddings and queries the selected dense provider: pgvector by default or optional Pinecone, whose IDs must be hydrated and validated through PostgreSQL.
+4. PostgreSQL independently retrieves lexical candidates; deterministic RRF fuses both rankings, followed by optional bounded cross-encoder reranking.
+5. Native generation receives only the question and allowlisted retrieved evidence.
+6. CivicLens validates stable chunk citations, reconstructs trusted provenance, and returns a safe no-answer response for unsupported or uncited claims.
 
-PostgreSQL is always authoritative for document/chunk text, metadata, provenance, hashes, corpus identity, and lexical retrieval. See the [RAG design](docs/rag-design.md) for provider compatibility, score semantics, reindexing, readiness, and failure behavior.
+PostgreSQL remains authoritative even when Pinecone supplies dense candidates. See the [RAG design](docs/rag-design.md) for score semantics, provider compatibility, readiness, reindexing, and failure behavior.
 
 ## Quick Start
 
@@ -123,7 +160,7 @@ docker compose run --rm api python -m scripts.bootstrap
 - Streamlit: <http://localhost:8501>
 - FastAPI: <http://localhost:8000>
 - API documentation: <http://localhost:8000/docs>
-- Next.js product UI: <http://localhost:3000> after following the focused [frontend setup](frontend/README.md)
+- Next.js product UI: <http://localhost:3000> after following the [frontend setup](frontend/README.md)
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/answer \
@@ -131,43 +168,16 @@ curl -X POST http://localhost:8000/api/v1/answer \
   -d '{"question":"What does complaint_type mean?","top_k":5}'
 ```
 
-The default local semantic model may download weights on first use. For non-container setup, configuration, reindexing, readiness, teardown, and optional Pinecone smoke instructions, use the [RAG design](docs/rag-design.md), [deployment guide](docs/deployment.md), and [configuration reference](.env.example).
-
-## Evaluation
-
-The approved real-local Advanced RAG comparison uses a **24-question curated fixture**, with **14 retrieval-eligible questions**, section-level relevance, PostgreSQL/pgvector, and cached local models.
-
-| Strategy | Recall@5 | MRR | Expected source |
-|---|---:|---:|---:|
-| Semantic | 0.6607 | 0.5857 | 0.7857 |
-| Hybrid | 0.8393 | 0.7071 | 0.9286 |
-| Hybrid + reranking | 0.8214 | 0.7619 | 0.9286 |
-
-These results are a small portfolio benchmark, not evidence of production reliability, general benchmark leadership, or statistical significance. The recorded application results also expose known failures: four questions expected to abstain were answered, and one adversarial question routed to predefined analytics. CivicLens keeps those outcomes visible rather than changing labels, thresholds, questions, or retrieval behavior to improve the presentation. See the [approved evaluation report](docs/evaluation-report.md) and [methodology](docs/evaluation-notes.md).
-
-## Tech Stack
-
-| Layer | Technologies |
-|---|---|
-| AI / RAG | Python, Sentence Transformers, optional OpenAI, optional bounded LangGraph, optional LangChain Core |
-| Retrieval | PostgreSQL 16, pgvector, PostgreSQL full-text search, RRF, optional cross-encoder reranking, optional Pinecone |
-| Application | FastAPI, Pydantic, Uvicorn, Next.js, TypeScript, Zod, Streamlit |
-| Data / operations | SQL migrations, manifest-based ingestion, Docker Compose, Render Blueprint |
-| Quality | pytest, Vitest, Testing Library, Ruff, ESLint, TypeScript, compileall, GitHub Actions |
-
-GitHub Actions validates five independent paths: **core/native** proves the Issue 18 optional packages are absent, then runs pytest, Ruff, and compileall; **bounded LangGraph** runs its routing, workflow, API, and safety suite; **optional Pinecone** installs the real SDK but uses mocked/fake service calls; **optional LangChain Core** installs the selected real framework package for adapter tests; and **frontend** runs lockfile installation, ESLint, TypeScript, mocked component/client tests, and a production Next.js build. Required tests use no paid APIs, model downloads, live Render/Vercel/Pinecone calls, or other external application services.
+The default local semantic model may download weights on first use. For non-container setup, configuration, reindexing, readiness, teardown, and optional Pinecone smoke instructions, see the [RAG design](docs/rag-design.md), [deployment guide](docs/deployment.md), and [configuration reference](.env.example).
 
 ## Limitations
 
-- CivicLens uses a small curated knowledge corpus and checked-in sample analytics outputs. It is not connected to live NYC 311 operational ingestion.
-- The analytics route exposes four fixed, typed, read-only tools; it is not unrestricted or production text-to-SQL.
-- OpenAI embeddings and answer generation remain optional and disabled by default in repository configuration. The hosted demo explicitly sets `ANSWER_PROVIDER=openai` for grounded RAG generation while retaining Sentence Transformers embeddings.
+- CivicLens uses a small curated corpus rather than live NYC 311 ingestion. Analytics is fixed, typed, read-only, and backed by checked-in sample CSV outputs—not unrestricted text-to-SQL.
+- Repository defaults keep OpenAI optional and disabled, with native CivicLens RAG and pgvector as defaults. The hosted demo uses Sentence Transformers embeddings, hybrid retrieval, and `ANSWER_PROVIDER=openai` for grounded generation.
 - Pinecone has real-SDK tests against fakes/mocks, but no successful live Pinecone smoke test is claimed.
-- The August 2026 Render/Vercel evidence is dated, time-limited, non-production deployment proof. It does not establish ongoing availability.
-- There is no production authentication, authorization, high availability, autoscaling, disaster recovery, rate limiting, hosted/production monitoring, retention guarantee, SLA, or production NYC service claim.
-- The bounded LangGraph path is not a fully autonomous agent: it has no planner, arbitrary tools, repeated tool loop, conversational memory, or hidden reasoning trace.
-- The evaluation fixture is small and includes documented abstention/routing failures; it does not establish production answer quality or reliability.
-- The Next.js product UI is hosted on Vercel and calls Render FastAPI directly; Streamlit remains the engineering, validation, and debugging UI. The public demo URL is portfolio evidence, not an availability commitment.
+- The dated Render/Vercel proof is time-limited and non-production, with cold starts and no continuous availability claim. It provides no production authentication, authorization, HA, autoscaling, disaster recovery, rate limiting, hosted/production monitoring, retention guarantee, or SLA.
+- Bounded LangGraph is not an autonomous agent. Next.js is the product UI; Streamlit remains the engineering, validation, and debugging interface.
+- The evaluation fixture is small and includes documented abstention and routing failures; it does not establish production answer quality, reliability, or statistical significance.
 
 ## Deep-Dive Documentation
 
@@ -180,5 +190,3 @@ GitHub Actions validates five independent paths: **core/native** proves the Issu
 - [Frontend setup](frontend/README.md) — local Next.js workflow, direct API boundary, quality commands, and Vercel configuration order
 - [Framework ADR](docs/adr/001-rag-framework-selection.md) — LangChain Core versus LlamaIndex Core decision
 - [Configuration](.env.example) — default and optional server-side settings
-
-This repository is an AI Engineering / RAG Engineering portfolio system with a strong data-engineering foundation. It is intentionally scoped as an auditable, non-production demonstration rather than a live municipal service.
