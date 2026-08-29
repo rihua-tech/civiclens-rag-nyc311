@@ -11,9 +11,9 @@ services:
     dockerCommand: /bin/sh scripts/render_start.sh
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: civiclens-postgres
-          property: connectionString
+        sync: false
+      - key: VECTOR_STORE_PROVIDER
+        value: pgvector
       - key: EMBEDDING_PROVIDER
         value: deterministic
       - key: EMBEDDING_MODEL
@@ -25,7 +25,9 @@ services:
       - key: RERANKING_ENABLED
         value: "false"
       - key: ANSWER_PROVIDER
-        value: local
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false
       - key: USE_OPENAI_EMBEDDINGS
         value: "false"
       - key: OBSERVABILITY_ENABLED

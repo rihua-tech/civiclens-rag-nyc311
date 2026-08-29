@@ -45,7 +45,7 @@ def test_blueprint_defines_only_the_two_free_oregon_docker_web_services():
         assert "branch" not in service
 
 
-def test_api_uses_existing_database_and_explicit_offline_demo_profile():
+def test_api_uses_operator_managed_database_and_verified_hosted_profile():
     api = _service(_blueprint(), "civiclens-api")
     environment = _environment(api)
 
@@ -53,18 +53,16 @@ def test_api_uses_existing_database_and_explicit_offline_demo_profile():
     assert api["healthCheckPath"] == "/health"
     assert environment["DATABASE_URL"] == {
         "key": "DATABASE_URL",
-        "fromDatabase": {
-            "name": "civiclens-postgres",
-            "property": "connectionString",
-        },
+        "sync": False,
     }
     expected_values = {
+        "VECTOR_STORE_PROVIDER": "pgvector",
         "EMBEDDING_PROVIDER": "deterministic",
         "EMBEDDING_MODEL": "local-deterministic-1536",
         "EMBEDDING_DIMENSION": "1536",
         "RETRIEVAL_MODE": "hybrid",
         "RERANKING_ENABLED": "false",
-        "ANSWER_PROVIDER": "local",
+        "ANSWER_PROVIDER": "openai",
         "USE_OPENAI_EMBEDDINGS": "false",
         "OBSERVABILITY_ENABLED": "false",
         "PORT": "8000",
@@ -73,7 +71,10 @@ def test_api_uses_existing_database_and_explicit_offline_demo_profile():
         key: environment[key]["value"] for key in expected_values
     } == expected_values
     assert "USE_OPENAI_ANSWERS" not in environment
-    assert "OPENAI_API_KEY" not in environment
+    assert environment["OPENAI_API_KEY"] == {
+        "key": "OPENAI_API_KEY",
+        "sync": False,
+    }
     assert not any(key.startswith("POSTGRES_") for key in environment)
     assert environment["CIVICLENS_CORS_ALLOWED_ORIGINS"] == {
         "key": "CIVICLENS_CORS_ALLOWED_ORIGINS",
@@ -118,4 +119,4 @@ def test_blueprint_contains_no_literal_database_url_or_credential():
 
     assert re.search(r"postgres(?:ql)?://", source, flags=re.IGNORECASE) is None
     assert re.search(r"password\s*:", source, flags=re.IGNORECASE) is None
-    assert re.search(r"(?:OPENAI_API_KEY|Authorization|Bearer\s+)", source) is None
+    assert re.search(r"(?:Authorization|Bearer\s+)", source) is None

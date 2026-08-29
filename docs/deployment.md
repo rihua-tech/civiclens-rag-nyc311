@@ -20,31 +20,31 @@ Browser
   -> Render FastAPI public contract
   -> CivicLens orchestration
   -> approved analytics or hybrid RAG
-  -> existing Render PostgreSQL/pgvector database
+  -> externally managed Neon PostgreSQL + pgvector database
 ```
 
 Streamlit remains the separate engineering and debugging UI. Next.js contains
 no API proxy, provider client, database client, retrieval logic, or citation
 reconstruction.
 
-Render was selected because it supports Docker-based web services, managed
-PostgreSQL with pgvector, declarative Blueprints, and straightforward teardown.
-The deployment uses Render Free services for dated portfolio proof. Their
-sufficiency for this bounded smoke test was validated; ongoing availability
-remains subject to Free-tier cold starts and platform limits.
+Render was selected for Docker-based web services, declarative Blueprints, and
+straightforward teardown. The current hosted database is Neon PostgreSQL with
+pgvector. The deployment uses Render Free services for dated portfolio proof.
+Their sufficiency for this bounded smoke test was validated; ongoing
+availability remains subject to Free-tier cold starts and platform limits.
 
-## Existing-resource assumption
+## Externally managed database assumption
 
-The Render workspace already contains one PostgreSQL instance named
-`civiclens-postgres` in Oregon. Public/external database access is disabled.
-The Blueprint deliberately contains no `databases` block and does not create,
-replace, resize, or otherwise manage that database.
+The current hosted database is an externally managed Neon Free PostgreSQL
+instance in AWS US West 2 (Oregon) with pgvector enabled. The Blueprint
+deliberately contains no `databases` block and does not create, replace,
+resize, or otherwise manage that database. The previous Render PostgreSQL
+database remains outside the Blueprint and is retained as a rollback target.
 
-`civiclens-api` receives `DATABASE_URL` through a `fromDatabase` reference to
-the existing database's internal `connectionString`. Never copy the internal
-URL or its credentials into Git, documentation, screenshots, or logs. The
-Blueprint must be created in the same Render workspace as the existing
-database or the reference will fail to resolve.
+`civiclens-api` declares `DATABASE_URL` with `sync: false`; its Neon Direct
+connection string is managed only in the Render Dashboard. Blueprint updates
+preserve the existing Dashboard value and do not prompt for it again. Never
+copy the URL or its credentials into Git, documentation, screenshots, or logs.
 
 The two web services are top-level Blueprint resources. They do not take
 ownership of the manually created Render Project or its `Demo` environment.
@@ -69,10 +69,10 @@ are now aligned with `main`.
 - `civiclens-ui`: Free Docker web service built with `Dockerfile.ui`, with
   `/_stcore/health` as its Render health check.
 
-Automatic deploys are disabled. The checked-in Blueprint keeps the offline
-demo defaults, while the validated Issue 19 hosted runtime explicitly uses
-Sentence Transformers embeddings, hybrid retrieval, and
-`ANSWER_PROVIDER=openai` for grounded RAG answer generation. OpenAI generation
+Automatic deploys are disabled. The checked-in Blueprint aligns with the
+verified hosted runtime: deterministic `local-deterministic-1536` embeddings,
+the pgvector dense store, hybrid retrieval, and `ANSWER_PROVIDER=openai` for
+grounded RAG answer generation. OpenAI generation
 is constrained to retrieved evidence, and CivicLens validates citations before
 returning the public response. `ANSWER_PROVIDER` is the single source of truth;
 the removed `USE_OPENAI_ANSWERS` flag is not a runtime input.
@@ -169,6 +169,8 @@ credentials, or raw provider payload appeared. OpenAI was disabled throughout.
 - API: <https://civiclens-api-o8ap.onrender.com>
 - API `GET /health`: HTTP `200`, status `ok`.
 - API `GET /ready`: HTTP `200`, status `ready`.
+- Database: externally managed Neon PostgreSQL + pgvector with 7 documents,
+  77 chunks, and 77 deterministic 1536-dimensional embeddings.
 - CORS: the explicit Render allowlist granted the stable Vercel origin
   `https://civiclens-rag-nyc311.vercel.app`; no wildcard origin was used.
 - Grounded RAG: a supported documentation question reached the configured
@@ -184,10 +186,10 @@ credentials, or raw provider payload appeared. OpenAI was disabled throughout.
 Secret-free hosted evidence is preserved in the grounded RAG, analytics, and
 safe-abstention screenshots under `docs/screenshots/`. The browser request path
 remains Vercel Next.js directly to Render FastAPI, then CivicLens orchestration
-and PostgreSQL/pgvector. Render Free instances may cold-start, so the first
-request can take longer than subsequent requests. This is a non-production
-portfolio deployment and carries no availability, reliability, or live NYC 311
-service claim.
+and Neon PostgreSQL + pgvector for hybrid RAG. Render Free instances may
+cold-start, so the first request can take longer than subsequent requests. This
+is a non-production portfolio deployment and carries no availability,
+reliability, or live NYC 311 service claim.
 
 ## Manual Blueprint deployment
 
@@ -200,8 +202,9 @@ service claim.
 4. Confirm Render detects the root `render.yaml`.
 5. Confirm the plan contains exactly two new Free web services,
    `civiclens-api` and `civiclens-ui`.
-6. Confirm `DATABASE_URL` references the existing `civiclens-postgres`; no new
-   PostgreSQL instance should appear in the plan.
+6. Confirm `DATABASE_URL` is declared with `sync: false`, the existing
+   Dashboard-managed Neon value is preserved, and no database resource appears
+   in the plan.
 7. Confirm both services are in Oregon and automatic deploys are disabled.
 8. Sync/deploy the Blueprint and inspect build, bootstrap, and runtime logs.
 9. Wait for `python -m scripts.bootstrap` to report successful migrations,
@@ -213,7 +216,8 @@ service claim.
 13. Save dated, secret-free screenshots or logs and the live URLs if the demo
     will remain available.
 
-Do not delete or recreate `civiclens-postgres` during this process.
+Do not delete the previous Render PostgreSQL database during the rollback
+retention period.
 
 ## Reproduction validation checklist
 
@@ -241,8 +245,8 @@ recorded non-production deployment.
   down after 15 minutes without inbound traffic, causing cold starts.
 - Free usage is subject to the workspace's runtime, bandwidth, and build-minute
   allowances.
-- Free Render PostgreSQL is limited to 1 GB, has no managed backups, and under
-  Render's current policy expires 30 days after creation unless upgraded.
+- The externally managed Neon Free database is subject to its own service and
+  retention limits; verify current Neon policy before relying on it.
 - This design has no high availability, autoscaling, disaster recovery,
   production secrets manager, authentication, or SLA.
 - Check the current Render pricing and Free-tier policy before deployment;
@@ -254,10 +258,11 @@ For a time-limited proof, suspend or delete `civiclens-ui` and `civiclens-api`
 from Render after capturing dated evidence. Disabling automatic deploys avoids
 unplanned redeploys. Review workspace usage and spend limits in the Dashboard.
 
-The database is an existing separately managed resource. Do not delete it as
-part of web-service teardown unless the owner separately decides that its data
-is no longer needed. Keeping external database access disabled is the expected
-security posture.
+The Neon database is an externally managed resource. Do not delete it as part
+of web-service teardown unless the owner separately decides that its data is
+no longer needed. Keep `DATABASE_URL` operator-managed and secret. Retain the
+previous Render PostgreSQL database until its rollback role is no longer
+required.
 
 ## Limitations
 
