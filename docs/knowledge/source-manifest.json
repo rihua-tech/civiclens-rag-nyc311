@@ -34,7 +34,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/README.md",
       "source_version": "Issue 20 recruiter-facing README",
       "retrieved_at": null,
-      "content_hash": "sha256:e79ffc52f066e32fcbdb00de0a655d007b15a9c2ff92f314d71590b7828209d0"
+      "content_hash": "sha256:996ff17ed2d822d0c45b233f70b14713d13ac6cb9dfba879380c1bac5ddb88ae"
     },
     {
       "source_name": "CivicLens Data Sources",
@@ -54,7 +54,7 @@
       "source_url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/architecture.md",
       "source_version": "Issue 19 frontend architecture",
       "retrieved_at": null,
-      "content_hash": "sha256:19ae7df53f93beb159d0f8465d18dac4cfd3ba15216d8e067574e45f8574b26f"
+      "content_hash": "sha256:c2545b533a7f877d84542e1aeaeec398ff16c7ad5cc242e1bbbbce5e764a1b9b"
     },
     {
       "source_name": "CivicLens RAG Design",

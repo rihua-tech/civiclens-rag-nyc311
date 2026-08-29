@@ -13,7 +13,7 @@ flowchart TD
     chunking --> postgres["Canonical PostgreSQL metadata<br/>chunk text + provenance + hashes + lexical"]
     chunking --> provider["Configurable embedding provider"]
     provider --> semantic["Local Sentence Transformers<br/>default semantic mode"]
-    provider --> fallback["Deterministic CI fallback<br/>or opt-in OpenAI"]
+    provider --> fallback["Deterministic 1536 profile<br/>or opt-in OpenAI"]
     semantic --> vectorContract["Small dense-vector contract"]
     fallback --> vectorContract
     vectorContract --> pgvector["pgvector adapter<br/>default"]
@@ -87,7 +87,7 @@ Execution has both a configurable bounded step/recursion limit and a fixed maxim
 
 The source manifest distinguishes curated external NYC 311 knowledge from CivicLens project documentation. Documents and section-aware chunks preserve stable IDs, source provenance, normalized content hashes, heading paths, ingestion timestamps, and `word_count` through PostgreSQL storage and retrieval. Semantic, lexical, fused, and reranked results share that metadata contract.
 
-The normal local semantic provider is `sentence-transformers/all-MiniLM-L6-v2`, which produces 384-dimensional vectors. It is a compact English sentence/paragraph model suitable for this small curated corpus. The deterministic 1536-dimensional provider remains available for tests and offline-safe CI, while the existing OpenAI embedding path remains opt-in.
+The normal local semantic provider is `sentence-transformers/all-MiniLM-L6-v2`, which produces 384-dimensional vectors. It is a compact English sentence/paragraph model suitable for this small curated corpus. The deterministic 1536-dimensional provider supports tests, offline-safe CI, and the current hosted profile, while the existing OpenAI embedding path remains opt-in.
 
 The default pgvector adapter uses the existing two dimension-specific columns, and stored rows record provider, model, and dimension. The optional Pinecone adapter targets an operator-created cosine index with the exact configured dimension and stores CivicLens vectors under a deterministic current-corpus namespace. Both providers preserve stable chunk IDs, cosine scores, ranks, candidate limits, minimum similarity, and deterministic ordering. There is exactly one selected provider per process; no dual write or fallback occurs.
 
@@ -105,7 +105,7 @@ The frontend owns presentation and one small typed HTTP client. Zod validates su
 
 Because the answer request crosses browser origins, FastAPI uses narrowly scoped CORS middleware. `CIVICLENS_CORS_ALLOWED_ORIGINS` is a comma-separated server-side allowlist with a localhost-only development default. Wildcards, credentials, URL paths, and non-HTTP(S) origins are rejected. The middleware allows only the `POST` method and `Content-Type` request header needed by the frontend, with credentials disabled. CORS controls browser response access; it is not authentication or production authorization.
 
-The verified browser request path is Vercel Next.js → Render FastAPI → shared CivicLens orchestration → hybrid RAG or approved analytics → Render PostgreSQL + pgvector. Render FastAPI remains the AI application boundary, and PostgreSQL + pgvector remains the default retrieval infrastructure. The hosted Issue 19 runtime uses Sentence Transformers embeddings, hybrid retrieval, and configured `ANSWER_PROVIDER=openai` generation for documentation RAG; OpenAI receives retrieved evidence, and CivicLens validates citations and provenance before returning the public answer. Approved analytics remains deterministic and allowlisted over checked-in sample outputs, while unsupported questions safely abstain with zero sources. Streamlit remains the engineering, validation, and debugging interface through the same FastAPI contract.
+The verified browser request path is Vercel Next.js → Render FastAPI → shared CivicLens orchestration → hybrid RAG or approved analytics. Hybrid RAG uses externally managed Neon PostgreSQL + pgvector, while approved analytics remains deterministic and allowlisted over checked-in sample outputs. Render FastAPI remains the AI application boundary, and PostgreSQL + pgvector remains the default retrieval infrastructure. The current hosted runtime uses deterministic `local-deterministic-1536` embeddings, hybrid retrieval, and configured `ANSWER_PROVIDER=openai` generation for documentation RAG; OpenAI receives retrieved evidence, and CivicLens validates citations and provenance before returning the public answer. Unsupported questions safely abstain with zero sources. Streamlit remains the engineering, validation, and debugging interface through the same FastAPI contract.
 
 ## Local Container Boundary
 
@@ -115,8 +115,8 @@ The one-off `python -m scripts.bootstrap` workflow reuses the Issue 13 migration
 
 ## Render Cloud Deployment Boundary
 
-Issue 15 reuses the same containers and application boundaries for a dated
-Render portfolio demo: public Streamlit calls the public FastAPI contract, and
+The original Issue 15 deployment reused the same containers and application
+boundaries for a dated Render portfolio demo: public Streamlit calls the public FastAPI contract, and
 FastAPI uses Render's internal connection to the existing managed
 PostgreSQL/pgvector database. The API startup script runs the same ordered,
 rerun-safe bootstrap before Uvicorn. The cloud profile uses deterministic
@@ -130,11 +130,12 @@ and dated evidence are recorded in `docs/deployment.md`. This verifies one
 cloud deployment path; it does not establish high availability, autoscaling,
 production authentication, backups, an SLA, or a production NYC service.
 
-Issue 19 keeps that Render API and database path unchanged. The verified
-Vercel-hosted Next.js client is an additional public browser consumer of the
-same Render FastAPI origin; it does not replace the dated Streamlit proof or
-move any retrieval, analytics, generation, citation, or data responsibility
-to Vercel.
+The verified Vercel-hosted Next.js client remains a public browser consumer of
+the same Render FastAPI origin; it does not replace the dated Streamlit proof
+or move any retrieval, analytics, generation, citation, or data responsibility
+to Vercel. The current hosted database is externally managed Neon PostgreSQL +
+pgvector. Render receives its connection through the operator-managed
+`DATABASE_URL`; no database secret is stored in the Blueprint or repository.
 
 ## Observability and Feedback Boundary
 
@@ -142,4 +143,4 @@ Shared orchestration, not FastAPI, creates one `query_id` when `OBSERVABILITY_EN
 
 Only execution metadata, existing retrieval scores/ranks, stable source references, and bounded feedback are stored. Issue 17 adds allow-listed orchestration mode, step count, tool-call count, and outcome fields; it does not persist graph state or planning traces. Raw question and answer text, retrieved chunk text, vectors, secrets, authorization data, environment configuration, hidden reasoning, and provider payloads are excluded. Ordered checksummed SQL files migrate existing tables without an ORM or database reset.
 
-This local-first architecture includes Docker Compose, the hosted Vercel Next.js product UI, Streamlit as the engineering/debug interface, and dated non-production Render deployment proof. Repository defaults keep OpenAI optional and disabled, while the hosted Issue 19 runtime explicitly uses Sentence Transformers embeddings with configured OpenAI grounded-answer generation. The demo remains curated and bounded, can experience Render Free cold starts, and has no SLA, authentication, high availability, rate limiting, or live NYC 311 operational claim. The analytics path remains predefined rather than production text-to-SQL, and the optional bounded graph is not an unrestricted autonomous agent. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, and production cloud monitoring remain outside the demonstrated scope.
+This local-first architecture includes Docker Compose, the hosted Vercel Next.js product UI, Streamlit as the engineering/debug interface, and dated non-production Render deployment proof. Repository defaults keep OpenAI optional and disabled, while the current hosted runtime uses deterministic 1536-dimensional embeddings in Neon PostgreSQL + pgvector with configured OpenAI grounded-answer generation. The demo remains curated and bounded, can experience Render Free cold starts, and has no SLA, authentication, high availability, rate limiting, or live NYC 311 operational claim. The analytics path remains predefined rather than production text-to-SQL, and the optional bounded graph is not an unrestricted autonomous agent. Hosted observability, distributed tracing, dashboards, alerting, retention guarantees, and production cloud monitoring remain outside the demonstrated scope.

@@ -41,11 +41,11 @@ Vercel Next.js
 Render FastAPI
   ↓
 CivicLens orchestration
-  ├─ Hybrid RAG → PostgreSQL + pgvector
+  ├─ Hybrid RAG → Neon PostgreSQL + pgvector
   └─ Approved Analytics → checked-in sample CSV outputs
 ```
 
-Next.js is a presentation client only; Render FastAPI remains the AI application boundary. The hosted RAG configuration uses Sentence Transformers embeddings, hybrid retrieval, and `ANSWER_PROVIDER=openai` for grounded generation. OpenAI receives retrieved evidence, and CivicLens validates citations before returning the public answer.
+Next.js is a presentation client only; Render FastAPI remains the AI application boundary. The hosted RAG configuration uses deterministic 1536-dimensional embeddings in Neon PostgreSQL + pgvector, hybrid retrieval, and `ANSWER_PROVIDER=openai` for grounded generation. OpenAI receives retrieved evidence, and CivicLens validates citations before returning the public answer.
 
 <details>
 <summary>View full technical architecture</summary>
@@ -173,7 +173,7 @@ The default local semantic model may download weights on first use. For non-cont
 ## Limitations
 
 - CivicLens uses a small curated corpus rather than live NYC 311 ingestion. Analytics is fixed, typed, read-only, and backed by checked-in sample CSV outputs—not unrestricted text-to-SQL.
-- Repository defaults keep OpenAI optional and disabled, with native CivicLens RAG and pgvector as defaults. The hosted demo uses Sentence Transformers embeddings, hybrid retrieval, and `ANSWER_PROVIDER=openai` for grounded generation.
+- Repository defaults keep OpenAI optional and disabled, with native CivicLens RAG and pgvector as defaults. The hosted demo uses deterministic 1536-dimensional embeddings in Neon PostgreSQL + pgvector, hybrid retrieval, and `ANSWER_PROVIDER=openai` for grounded generation.
 - Pinecone has real-SDK tests against fakes/mocks, but no successful live Pinecone smoke test is claimed.
 - The dated Render/Vercel proof is time-limited and non-production, with cold starts and no continuous availability claim. It provides no production authentication, authorization, HA, autoscaling, disaster recovery, rate limiting, hosted/production monitoring, retention guarantee, or SLA.
 - Bounded LangGraph is not an autonomous agent. Next.js is the product UI; Streamlit remains the engineering, validation, and debugging interface.
