@@ -120,6 +120,28 @@ def test_valid_analytics_request_has_same_public_contract():
     assert "sample_rows" not in response.json()
 
 
+def test_public_answer_removes_simple_emphasis_and_preserves_citations():
+    result = _rag_result()
+    result["answer"] = (
+        "Use __init__ and **Closed Date**. [1]\n\n"
+        "Both fields retain their normal text."
+    )
+    response = _client_with_router(lambda question, top_k: result).post(
+        "/api/v1/answer",
+        json={"question": "What is the difference between closed_date and due_date?"},
+    )
+
+    assert response.status_code == 200
+    answer = response.json()["answer"]
+    assert answer == (
+        "Use __init__ and Closed Date. [1]\n\n"
+        "Both fields retain their normal text."
+    )
+    assert "**" not in answer
+    assert "__init__" in answer
+    assert "[1]" in answer
+
+
 def test_analytics_fallback_is_a_public_abstention():
     fallback = {
         "answer": "No predefined route matched.",

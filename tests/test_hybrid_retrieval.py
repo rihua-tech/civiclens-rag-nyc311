@@ -138,6 +138,47 @@ def test_hybrid_mode_executes_bounded_candidates_and_returns_stable_contract():
     assert results[0]["document_content_hash"] == "sha256:document"
 
 
+def test_snake_case_comparison_expands_before_retrieving_both_field_sections():
+    calls = []
+
+    def semantic_retriever(question, **kwargs):
+        calls.append(("semantic", question))
+        return [
+            {
+                **result("closed", 1, "semantic"),
+                "section_title": "Closed Date",
+            },
+            {
+                **result("due", 2, "semantic"),
+                "section_title": "Due Date",
+            },
+        ]
+
+    def lexical_retriever(question, **kwargs):
+        calls.append(("lexical", question))
+        return []
+
+    results = retrieve_with_mode(
+        "What is the difference between closed_date and due_date?",
+        top_k=2,
+        min_similarity=0.05,
+        settings=settings(),
+        semantic_retriever=semantic_retriever,
+        lexical_retriever=lexical_retriever,
+    )
+
+    assert [mode for mode, _ in calls] == ["semantic", "lexical"]
+    assert all("closed_date" in question for _, question in calls)
+    assert all("due_date" in question for _, question in calls)
+    assert all("Closed Date" in question for _, question in calls)
+    assert all("Due Date" in question for _, question in calls)
+    assert all("Field Guide" not in question for _, question in calls)
+    assert {item["section_title"] for item in results} == {
+        "Closed Date",
+        "Due Date",
+    }
+
+
 def test_invalid_or_unbounded_retrieval_configuration_fails():
     with pytest.raises(ValueError, match="RETRIEVAL_MODE"):
         retrieve_with_mode(

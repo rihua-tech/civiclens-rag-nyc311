@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from src.common.config import Settings
 from src.embeddings.providers import EmbeddingSpec
 from src.retrieval.retrieve_context import (
+    expand_schema_field_aliases,
     format_cli_results,
     format_retrieval_rows,
     lexical_query_text,
@@ -210,6 +211,27 @@ def test_lexical_query_terms_are_bounded():
     query = " ".join(f"term{index}" for index in range(20))
 
     assert len(lexical_query_text(query).split()) == 12
+
+
+def test_schema_field_alias_expansion_uses_field_guide_labels():
+    expanded = expand_schema_field_aliases(
+        "Compare complaint_type, descriptor, closed_date, and due_date."
+    )
+
+    assert expanded.startswith(
+        "Compare complaint_type, descriptor, closed_date, and due_date."
+    )
+    assert "Complaint Type" in expanded
+    assert "Problem" in expanded
+    assert "Problem Detail" in expanded
+    assert "Closed Date" in expanded
+    assert "Due Date" in expanded
+
+
+def test_schema_field_alias_expansion_does_not_change_ordinary_queries():
+    question = "Which borough has the highest request count?"
+
+    assert expand_schema_field_aliases(question) == question
 
 
 def test_semantic_retrieval_validates_profile_dimension_and_uses_pgvector(

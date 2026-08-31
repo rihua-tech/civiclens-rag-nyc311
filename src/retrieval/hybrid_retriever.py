@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 from src.common.config import Settings
 from src.retrieval.reranker import Reranker, create_reranker, rerank_results
 from src.retrieval.retrieve_context import (
+    expand_schema_field_aliases,
     retrieve_lexical_context,
     retrieve_semantic_context,
     validate_candidate_limit,
@@ -88,6 +89,7 @@ def retrieve_with_mode(
     reranker: Reranker | None = None,
 ) -> list[dict]:
     final_limit = validate_top_k(top_k)
+    retrieval_question = expand_schema_field_aliases(question)
     semantic_limit = validate_candidate_limit(
         settings.semantic_candidate_count,
         "semantic candidate count",
@@ -97,7 +99,7 @@ def retrieve_with_mode(
         raise ValueError("RETRIEVAL_MODE must be 'semantic' or 'hybrid'")
 
     semantic_results = semantic_retriever(
-        question,
+        retrieval_question,
         candidate_limit=semantic_limit,
         min_similarity=min_similarity,
         settings=settings,
@@ -110,7 +112,7 @@ def retrieve_with_mode(
             "lexical candidate count",
         )
         lexical_results = lexical_retriever(
-            question,
+            retrieval_question,
             candidate_limit=lexical_limit,
             settings=settings,
         )
@@ -123,7 +125,7 @@ def retrieve_with_mode(
     if settings.reranking_enabled:
         active_reranker = reranker or create_reranker(settings)
         candidates = rerank_results(
-            question,
+            retrieval_question,
             candidates,
             active_reranker,
             settings.rerank_candidate_limit,
