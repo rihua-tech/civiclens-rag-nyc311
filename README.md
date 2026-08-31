@@ -181,6 +181,7 @@ The default local semantic model may download weights on first use. For non-cont
 
 ## Deep-Dive Documentation
 
+- [Solution Report (PDF)](./CivicLens_RAG_Solution_Report.pdf)
 - [Architecture](docs/architecture.md) — component boundaries, data flow, orchestration, observability, and deployment architecture
 - [RAG design](docs/rag-design.md) — ingestion, embeddings, vector providers, hybrid retrieval, grounding, citations, and operations
 - [Data sources](docs/data-sources.md) — curated inventory, official provenance, manifest rules, and scope
