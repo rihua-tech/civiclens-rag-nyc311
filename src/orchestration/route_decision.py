@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Any
 
@@ -24,14 +25,63 @@ ANALYTICS_CUES = (
     "backlog",
     "overdue",
 )
+AGGREGATION_CUES = (
+    "top",
+    "most common",
+    "most requests",
+    "count",
+    "counts",
+    "total",
+    "totals",
+    "rank",
+    "ranking",
+    "highest",
+    "lowest",
+    "breakdown",
+    "distribution",
+    "aggregate",
+    "analytics",
+    "volume",
+    "requests by",
+    "how many",
+    "percentage",
+    "percent",
+)
 FIELD_DEFINITION_CUES = (
-    "what does",
-    "what do",
-    "mean",
-    "means",
+    "meaning",
     "definition",
     "define",
+    "field guide",
+    "field-guide",
+    "schema",
+    "field definition",
 )
+FIELD_INTENT_CUES = (
+    "difference",
+    "different",
+    "compare",
+    "comparison",
+    "explain",
+    "interpret",
+    "interpretation",
+)
+FIELD_LABEL_CUES = (
+    "complaint type",
+    "descriptor",
+    "closed date",
+    "due date",
+)
+LIVE_REQUEST_TIME_CUES = (
+    "today",
+    "yesterday",
+    "this week",
+    "last week",
+    "this month",
+    "last month",
+)
+SATISFACTION_CUES = ("satisfaction", "satisfied")
+SCHEMA_FIELD_PATTERN = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+FIELD_MEANING_PATTERN = re.compile(r"\bwhat do(?:es)?\b.+\bmean\b")
 
 
 class QuestionRoute(StrEnum):
@@ -77,8 +127,45 @@ def normalize_question(question: str) -> str:
     return normalized
 
 
+def _contains_cue(normalized_question: str, cue: str) -> bool:
+    return re.search(
+        rf"(?<!\w){re.escape(cue)}(?!\w)",
+        normalized_question,
+    ) is not None
+
+
+def looks_like_aggregation_question(normalized_question: str) -> bool:
+    lowered = normalized_question.lower()
+    return any(_contains_cue(lowered, cue) for cue in AGGREGATION_CUES)
+
+
+def looks_like_unsupported_analytics_question(normalized_question: str) -> bool:
+    lowered = normalized_question.lower()
+    requests_live_data = "request" in lowered and any(
+        cue in lowered for cue in LIVE_REQUEST_TIME_CUES
+    )
+    requests_satisfaction_percentage = any(
+        cue in lowered for cue in SATISFACTION_CUES
+    ) and any(cue in lowered for cue in ("percentage", "percent"))
+    return requests_live_data or requests_satisfaction_percentage
+
+
 def looks_like_field_definition_question(normalized_question: str) -> bool:
-    return any(cue in normalized_question.lower() for cue in FIELD_DEFINITION_CUES)
+    lowered = normalized_question.lower()
+    if FIELD_MEANING_PATTERN.search(lowered) is not None or any(
+        cue in lowered for cue in FIELD_DEFINITION_CUES
+    ):
+        return True
+
+    has_schema_field = SCHEMA_FIELD_PATTERN.search(lowered) is not None or any(
+        cue in lowered for cue in FIELD_LABEL_CUES
+    )
+    has_field_intent = any(cue in lowered for cue in FIELD_INTENT_CUES)
+    return (
+        has_schema_field
+        and has_field_intent
+        and not looks_like_aggregation_question(lowered)
+    )
 
 
 def decide_question_route(question: str) -> RouteDecision:
@@ -87,7 +174,12 @@ def decide_question_route(question: str) -> RouteDecision:
     normalized = normalize_question(question).lower()
     if looks_like_field_definition_question(normalized):
         return RouteDecision(route=QuestionRoute.RAG)
-    if "complaint" in normalized and ("top" in normalized or "type" in normalized):
+    has_complaint_type_subject = (
+        "complaint type" in normalized
+        or "complaint_type" in normalized
+        or "top complaint" in normalized
+    )
+    if has_complaint_type_subject and looks_like_aggregation_question(normalized):
         return RouteDecision(
             route=QuestionRoute.ANALYTICS,
             tool_id=AnalyticsToolId.TOP_COMPLAINT_TYPES,
@@ -118,7 +210,9 @@ def decide_question_route(question: str) -> RouteDecision:
             route=QuestionRoute.ANALYTICS,
             tool_id=AnalyticsToolId.BACKLOG_SUMMARY,
         )
-    if any(cue in normalized for cue in ANALYTICS_CUES):
+    if any(cue in normalized for cue in ANALYTICS_CUES) or (
+        looks_like_unsupported_analytics_question(normalized)
+    ):
         return RouteDecision(route=QuestionRoute.UNSUPPORTED_ANALYTICS)
     return RouteDecision(route=QuestionRoute.RAG)
 

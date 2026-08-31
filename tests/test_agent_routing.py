@@ -54,6 +54,81 @@ def _settings(mode: str = "direct") -> Settings:
         ),
         ("Compare requests by weekday", QuestionRoute.UNSUPPORTED_ANALYTICS, None),
         ("What does complaint_type mean?", QuestionRoute.RAG, None),
+        ("Define complaint_type.", QuestionRoute.RAG, None),
+        ("What does descriptor mean?", QuestionRoute.RAG, None),
+        (
+            "Explain the difference between complaint_type and descriptor.",
+            QuestionRoute.RAG,
+            None,
+        ),
+        (
+            "How are complaint_type and descriptor different?",
+            QuestionRoute.RAG,
+            None,
+        ),
+        ("What does closed_date mean?", QuestionRoute.RAG, None),
+        ("What does due_date mean?", QuestionRoute.RAG, None),
+        (
+            "What is the difference between closed_date and due_date?",
+            QuestionRoute.RAG,
+            None,
+        ),
+        (
+            "Explain the difference between Closed Date and Due Date in the "
+            "NYC 311 Service Request Field Guide.",
+            QuestionRoute.RAG,
+            None,
+        ),
+        (
+            "Which complaint types have the most requests?",
+            QuestionRoute.ANALYTICS,
+            AnalyticsToolId.TOP_COMPLAINT_TYPES,
+        ),
+        (
+            "Show complaint type counts.",
+            QuestionRoute.ANALYTICS,
+            AnalyticsToolId.TOP_COMPLAINT_TYPES,
+        ),
+        (
+            "What do complaint type counts show?",
+            QuestionRoute.ANALYTICS,
+            AnalyticsToolId.TOP_COMPLAINT_TYPES,
+        ),
+        (
+            "Explain complaint type counts.",
+            QuestionRoute.ANALYTICS,
+            AnalyticsToolId.TOP_COMPLAINT_TYPES,
+        ),
+        (
+            "Rank complaint types by request count.",
+            QuestionRoute.ANALYTICS,
+            AnalyticsToolId.TOP_COMPLAINT_TYPES,
+        ),
+        (
+            "Which borough has the highest request count in the sample analytics data?",
+            QuestionRoute.ANALYTICS,
+            AnalyticsToolId.BOROUGH_REQUEST_VOLUME,
+        ),
+        (
+            "How many chunks are in the CivicLens corpus?",
+            QuestionRoute.RAG,
+            None,
+        ),
+        (
+            "How many source documents are in the knowledge corpus?",
+            QuestionRoute.RAG,
+            None,
+        ),
+        (
+            "What percentage Recall@5 did the hybrid retriever achieve?",
+            QuestionRoute.RAG,
+            None,
+        ),
+        (
+            "What is the total number of retrieval-eligible evaluation questions?",
+            QuestionRoute.RAG,
+            None,
+        ),
     ],
 )
 def test_shared_deterministic_route_decision(question, route, tool_id):

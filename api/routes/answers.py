@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -15,10 +16,22 @@ from src.orchestration.question_router import route_question
 
 router = APIRouter(prefix="/api/v1", tags=["answers"])
 QuestionRouter = Callable[..., dict[str, Any]]
+SIMPLE_MARKDOWN_EMPHASIS_PATTERN = re.compile(
+    r"\*\*(?P<text>\S(?:.*?\S)?)\*\*"
+)
 
 
 def get_question_router() -> QuestionRouter:
     return route_question
+
+
+def normalize_answer_display_text(answer: str) -> str:
+    """Remove paired asterisk emphasis markers for plain-text answer clients."""
+
+    return SIMPLE_MARKDOWN_EMPHASIS_PATTERN.sub(
+        lambda match: match.group("text"),
+        answer,
+    )
 
 
 def _public_source(source: dict[str, Any]) -> AnswerSource:
@@ -57,7 +70,7 @@ def public_answer_response(result: dict[str, Any]) -> AnswerResponse:
     else:
         status = AnswerStatus.ANSWERED.value
 
-    answer = str(result.get("answer") or NO_ANSWER)
+    answer = normalize_answer_display_text(str(result.get("answer") or NO_ANSWER))
     raw_sources = result.get("sources") or []
     if not isinstance(raw_sources, list):
         raise RuntimeError("orchestrator returned invalid sources")

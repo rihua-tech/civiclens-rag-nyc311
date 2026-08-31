@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import re
 from typing import Iterable
 
 from src.common.config import PINECONE_VECTOR_STORE, Settings
@@ -61,6 +62,12 @@ LEXICAL_STOPWORDS = EMBEDDING_STOPWORDS | {
     "means",
     "tell",
 }
+SCHEMA_FIELD_ALIASES = {
+    "complaint_type": ("Complaint Type", "Problem"),
+    "descriptor": ("Descriptor", "Problem Detail"),
+    "closed_date": ("Closed Date",),
+    "due_date": ("Due Date",),
+}
 
 
 def validate_top_k(top_k: int) -> int:
@@ -77,6 +84,21 @@ def validate_candidate_limit(candidate_limit: int, name: str) -> int:
     if candidate_limit > MAX_CANDIDATES:
         raise ValueError(f"{name} must be less than or equal to {MAX_CANDIDATES}")
     return candidate_limit
+
+
+def expand_schema_field_aliases(question: str) -> str:
+    """Append corpus-supported display labels for schema-style field tokens."""
+
+    cleaned_question = question.strip()
+    additions: list[str] = []
+    for field_name, aliases in SCHEMA_FIELD_ALIASES.items():
+        field_pattern = rf"(?<![A-Za-z0-9_]){re.escape(field_name)}(?![A-Za-z0-9_])"
+        if re.search(field_pattern, cleaned_question, flags=re.IGNORECASE) is None:
+            continue
+        for alias in aliases:
+            if alias.casefold() not in cleaned_question.casefold() and alias not in additions:
+                additions.append(alias)
+    return " ".join((cleaned_question, *additions))
 
 
 def result_from_row(
