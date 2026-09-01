@@ -36,7 +36,11 @@ def test_unknown_analytics_question_returns_safe_fallback():
     response = answer_analytics_question("What is the average close time by hour?")
 
     assert response["mode"] == "fallback"
-    assert "predefined sample analytics questions" in response["answer"]
+    assert response["answer"].startswith(
+        "I can answer only the predefined sample analytics questions for this "
+        "portfolio demo."
+    )
+    assert "local demo" not in response["answer"]
     assert response["sources"] == []
     assert response["retrieved_chunks"] == []
 
