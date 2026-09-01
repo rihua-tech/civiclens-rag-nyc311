@@ -13,6 +13,13 @@ CODE_FENCE_PATTERN = re.compile(r"```[A-Za-z0-9_-]*|```")
 MARKDOWN_HEADING_PATTERN = re.compile(r"(?:^|\s)#{1,6}\s+")
 ARROW_SEPARATOR_PATTERN = re.compile(r"\s*(?:->|\u2192|\u2193)\s*")
 LIST_MARKER_PATTERN = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+PERCENTAGE_CUE_PATTERN = re.compile(r"\b(?:percent|percentage)\b", re.IGNORECASE)
+AT_K_METRIC_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9_-]*@\d+\b")
+BROAD_METRIC_QUESTION_PATTERN = re.compile(
+    r"\b(?:and|compare|comparison|versus|vs)\b",
+    re.IGNORECASE,
+)
+DECIMAL_RATIO_PATTERN = r"(?:0(?:\.\d+)?|1(?:\.0+)?)"
 LOW_VALUE_HEADINGS = {
     "architecture",
     "civiclens rag hybrid rag architecture",
@@ -200,11 +207,41 @@ def architecture_summary_sentences(
     return []
 
 
+def single_percentage_metric_sentence(
+    question: str,
+    evidence: Sequence[EvidenceItem],
+) -> tuple[str, int] | None:
+    metrics = list(dict.fromkeys(AT_K_METRIC_PATTERN.findall(question)))
+    if (
+        PERCENTAGE_CUE_PATTERN.search(question) is None
+        or BROAD_METRIC_QUESTION_PATTERN.search(question) is not None
+        or len(metrics) != 1
+    ):
+        return None
+
+    metric = metrics[0]
+    value_pattern = re.compile(
+        rf"(?P<ratio>{DECIMAL_RATIO_PATTERN})\s+{re.escape(metric)}\b",
+        re.IGNORECASE,
+    )
+    for source_number, item in enumerate(evidence, start=1):
+        match = value_pattern.search(clean_answer_candidate(item.chunk_text))
+        if match is None:
+            continue
+        percentage = f"{float(match.group('ratio')) * 100:.1f}".rstrip("0").rstrip(".")
+        return f"{metric} was {percentage}%.", source_number
+    return None
+
+
 def select_answer_sentences(
     question: str,
     evidence: Sequence[EvidenceItem],
     limit: int = 3,
 ) -> list[tuple[str, int]]:
+    metric_sentence = single_percentage_metric_sentence(question, evidence)
+    if metric_sentence is not None:
+        return [metric_sentence]
+
     architecture_sentences = architecture_summary_sentences(question, evidence)
     if architecture_sentences:
         return architecture_sentences[:limit]

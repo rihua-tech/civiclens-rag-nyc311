@@ -50,6 +50,8 @@ def test_unsupported_analytics_like_question_preserves_fallback(monkeypatch, que
     assert result["answer"] == ANALYTICS_FALLBACK
     assert result["answer_status"] == "abstained"
     assert result["sources"] == []
+    assert "portfolio demo" in result["answer"]
+    assert "local demo" not in result["answer"]
 
 
 def test_document_question_uses_grounded_answer_path_and_forwards_top_k(monkeypatch):

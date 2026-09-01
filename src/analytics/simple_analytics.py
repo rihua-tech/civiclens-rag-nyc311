@@ -25,7 +25,7 @@ from src.orchestration.route_decision import (
 
 
 ANALYTICS_FALLBACK = (
-    "I can answer only the predefined sample analytics questions for this local demo. "
+    "I can answer only the predefined sample analytics questions for this portfolio demo. "
     "Try asking about top complaint types, borough complaint volume, agency request volume, "
     "or the backlog summary."
 )

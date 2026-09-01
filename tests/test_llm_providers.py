@@ -110,6 +110,55 @@ def test_deterministic_provider_contract_works():
     assert provider.provider_name == "local"
 
 
+@pytest.mark.parametrize(
+    ("question", "evidence_text", "expected_answer"),
+    [
+        (
+            "What percentage Recall@5 did the hybrid retriever achieve?",
+            "Hybrid search reached `0.8393` Recall@5 and 0.9286 expected-source retrieval.",
+            "Recall@5 was 83.9%. [1]",
+        ),
+        (
+            "What percentage Precision@10 did the retriever achieve?",
+            "The measured result was 0.456 Precision@10.",
+            "Precision@10 was 45.6%. [1]",
+        ),
+    ],
+)
+def test_deterministic_provider_formats_single_percentage_metric_from_evidence(
+    question,
+    evidence_text,
+    expected_answer,
+):
+    response = generate_answer_from_chunks(
+        question,
+        [sample_chunk(evidence_text)],
+        settings=settings(),
+        provider=DeterministicAnswerProvider(),
+    )
+
+    assert response["answer"] == expected_answer
+    assert response["citation_ids"] == ["chunk_a"]
+    assert response["sources"][0]["chunk_id"] == "chunk_a"
+
+
+def test_deterministic_provider_preserves_broader_metric_comparison_answer():
+    response = generate_answer_from_chunks(
+        "Compare percentage Recall@5 and expected-source retrieval.",
+        [
+            sample_chunk(
+                "Hybrid search reached 0.8393 Recall@5 and 0.9286 "
+                "expected-source retrieval."
+            )
+        ],
+        settings=settings(),
+        provider=DeterministicAnswerProvider(),
+    )
+
+    assert "0.8393 Recall@5" in response["answer"]
+    assert "0.9286 expected-source retrieval" in response["answer"]
+
+
 def test_answer_provider_configuration_defaults_to_local(monkeypatch):
     monkeypatch.setattr(config, "load_dotenv_if_available", lambda: None)
     for name in (
@@ -201,6 +250,17 @@ def test_mocked_openai_answer_uses_responses_structured_output():
 def test_openai_rules_preserve_explicit_evidence_distinctions():
     assert "API field name versus a current or former display label" in APPLICATION_RULES
     assert "do not describe one as the other" in APPLICATION_RULES
+
+
+def test_openai_rules_keep_single_metric_answers_concise_and_allow_ratio_conversion():
+    assert "one named fact, value, or percentage as single-fact" in APPLICATION_RULES
+    assert "exactly one plain-text sentence" in APPLICATION_RULES
+    assert "no bullets, table material" in APPLICATION_RULES
+    assert "unrequested metrics" in APPLICATION_RULES
+    assert "decimal ratio from 0 to 1" in APPLICATION_RULES
+    assert "convert it arithmetically to a percentage" in APPLICATION_RULES
+    assert "0.8393" not in APPLICATION_RULES
+    assert "83.9" not in APPLICATION_RULES
 
 
 def test_mocked_openai_abstention_is_safe():
