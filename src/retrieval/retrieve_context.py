@@ -54,13 +54,21 @@ DIAGNOSTIC_FIELDS = (
 )
 LEXICAL_STOPWORDS = EMBEDDING_STOPWORDS | {
     "about",
+    "achieve",
+    "achieved",
     "define",
     "definition",
+    "did",
     "does",
     "explain",
     "mean",
     "means",
+    "percent",
+    "percentage",
     "tell",
+}
+LEXICAL_TOKEN_ALIASES = {
+    "retriever": "retrieval",
 }
 SCHEMA_FIELD_ALIASES = {
     "complaint_type": ("Complaint Type", "Problem"),
@@ -144,6 +152,7 @@ def lexical_query_text(question: str) -> str:
     terms: list[str] = []
     seen: set[str] = set()
     for token in TOKEN_PATTERN.findall(question.lower()):
+        token = LEXICAL_TOKEN_ALIASES.get(token, token)
         if token in LEXICAL_STOPWORDS or token in seen:
             continue
         seen.add(token)

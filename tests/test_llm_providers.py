@@ -198,6 +198,11 @@ def test_mocked_openai_answer_uses_responses_structured_output():
     assert call["store"] is False
 
 
+def test_openai_rules_preserve_explicit_evidence_distinctions():
+    assert "API field name versus a current or former display label" in APPLICATION_RULES
+    assert "do not describe one as the other" in APPLICATION_RULES
+
+
 def test_mocked_openai_abstention_is_safe():
     provider, _, _ = openai_provider(
         {"answer": "", "citation_ids": [], "status": "abstained"}

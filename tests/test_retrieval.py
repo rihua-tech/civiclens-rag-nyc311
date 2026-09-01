@@ -1,8 +1,11 @@
 import sys
 from types import SimpleNamespace
 
+from src.chunking.chunk_documents import chunk_documents
 from src.common.config import Settings
 from src.embeddings.providers import EmbeddingSpec
+from src.embeddings.providers.deterministic import TOKEN_PATTERN
+from src.ingestion.load_documents import load_documents
 from src.retrieval.retrieve_context import (
     expand_schema_field_aliases,
     format_cli_results,
@@ -205,6 +208,33 @@ def test_postgresql_lexical_retrieval_is_parameterized_and_preserves_provenance(
 
 def test_lexical_query_keeps_exact_identifier_and_removes_question_filler():
     assert lexical_query_text("What does complaint_type mean?") == "complaint_type"
+
+
+def test_lexical_query_removes_metric_question_filler_that_blocks_evidence():
+    question = "What percentage Recall@5 did the hybrid retriever achieve?"
+
+    assert lexical_query_text(question) == "recall 5 hybrid retrieval"
+
+
+def test_metric_query_terms_match_manifest_authorized_readme_chunk():
+    question = "What percentage Recall@5 did the hybrid retriever achieve?"
+    query_terms = set(lexical_query_text(question).split())
+    chunks = chunk_documents(load_documents(ingested_at="metric-retrieval-test"))
+
+    matching_chunks = [
+        chunk
+        for chunk in chunks
+        if chunk["source_path"] == "README.md"
+        and query_terms.issubset(
+            set(TOKEN_PATTERN.findall(str(chunk["chunk_text"]).lower()))
+        )
+    ]
+
+    assert any(
+        chunk["section_title"] == "Proof at a Glance"
+        and "0.8393" in chunk["chunk_text"]
+        for chunk in matching_chunks
+    )
 
 
 def test_lexical_query_terms_are_bounded():
