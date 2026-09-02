@@ -10,6 +10,7 @@ from typing import Iterable
 from src.common.config import PINECONE_VECTOR_STORE, Settings
 from src.embeddings.providers import EmbeddingProvider, create_embedding_provider
 from src.embeddings.providers.deterministic import EMBEDDING_STOPWORDS, TOKEN_PATTERN
+from src.observability.latency import connect_with_latency
 from src.vectorstores.base import VectorStore
 from src.vectorstores.factory import create_vector_store
 from src.vectorstores.models import (
@@ -221,7 +222,8 @@ def hydrate_vector_matches(
 
     import psycopg
 
-    with psycopg.connect(settings.database_url) as connection:
+    connection = connect_with_latency(psycopg.connect, settings.database_url)
+    with connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -303,7 +305,8 @@ def retrieve_lexical_context(
 
     import psycopg
 
-    with psycopg.connect(active_settings.database_url) as connection:
+    connection = connect_with_latency(psycopg.connect, active_settings.database_url)
+    with connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """

@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
+from src.observability.latency import measure_latency
+
 
 MODEL_DISPLAY_CITATION_PATTERN = re.compile(r"\s*\[\d+\]")
 SOURCE_METADATA_KEYS = (
@@ -63,28 +65,29 @@ def validate_citation_ids(
     retrieved_chunks: Sequence[dict[str, Any]],
 ) -> CitationValidationResult:
     """Accept only retrieved chunk IDs and preserve provider ID order."""
-    retrieved_by_id = {
-        str(chunk.get("chunk_id", "")): (position, chunk)
-        for position, chunk in enumerate(retrieved_chunks, start=1)
-        if str(chunk.get("chunk_id", "")).strip()
-    }
-    valid_ids: list[str] = []
-    invalid_ids: list[str] = []
-    sources: list[dict[str, Any]] = []
-    for citation_id in _unique_ids(citation_ids):
-        retrieved = retrieved_by_id.get(citation_id)
-        if retrieved is None:
-            invalid_ids.append(citation_id)
-            continue
-        position, chunk = retrieved
-        valid_ids.append(citation_id)
-        sources.append(source_from_retrieved_chunk(chunk, position))
+    with measure_latency("citation_validation_ms"):
+        retrieved_by_id = {
+            str(chunk.get("chunk_id", "")): (position, chunk)
+            for position, chunk in enumerate(retrieved_chunks, start=1)
+            if str(chunk.get("chunk_id", "")).strip()
+        }
+        valid_ids: list[str] = []
+        invalid_ids: list[str] = []
+        sources: list[dict[str, Any]] = []
+        for citation_id in _unique_ids(citation_ids):
+            retrieved = retrieved_by_id.get(citation_id)
+            if retrieved is None:
+                invalid_ids.append(citation_id)
+                continue
+            position, chunk = retrieved
+            valid_ids.append(citation_id)
+            sources.append(source_from_retrieved_chunk(chunk, position))
 
-    return CitationValidationResult(
-        valid_ids=tuple(valid_ids),
-        invalid_ids=tuple(invalid_ids),
-        sources=tuple(sources),
-    )
+        return CitationValidationResult(
+            valid_ids=tuple(valid_ids),
+            invalid_ids=tuple(invalid_ids),
+            sources=tuple(sources),
+        )
 
 
 def add_validated_display_citations(
@@ -92,11 +95,12 @@ def add_validated_display_citations(
     sources: Sequence[dict[str, Any]],
 ) -> str:
     """Discard model display numbers and rebuild them from validated IDs."""
-    cleaned_answer = MODEL_DISPLAY_CITATION_PATTERN.sub("", answer).strip()
-    display_numbers = [
-        f"[{int(source['citation_number'])}]"
-        for source in sources
-        if source.get("citation_number") is not None
-    ]
-    return " ".join((cleaned_answer, *display_numbers)).strip()
+    with measure_latency("citation_validation_ms"):
+        cleaned_answer = MODEL_DISPLAY_CITATION_PATTERN.sub("", answer).strip()
+        display_numbers = [
+            f"[{int(source['citation_number'])}]"
+            for source in sources
+            if source.get("citation_number") is not None
+        ]
+        return " ".join((cleaned_answer, *display_numbers)).strip()
 

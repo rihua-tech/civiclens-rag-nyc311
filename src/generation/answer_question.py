@@ -18,6 +18,7 @@ from src.generation.providers import (
 )
 from src.generation.providers.base import AnswerProviderError
 from src.generation.schemas import AnswerStatus, EvidenceItem, NO_ANSWER, ProviderResult
+from src.observability.latency import measure_latency
 from src.retrieval.retrieve_context import DEFAULT_MIN_SIMILARITY, retrieve_context
 
 
@@ -29,6 +30,15 @@ OPENAI_CONFIDENCE_NOTE = (
     "This answer was generated from retrieved context by the configured OpenAI "
     "provider and its citations were validated by CivicLens."
 )
+
+
+def _generate_with_timing(
+    provider: AnswerProvider,
+    question: str,
+    evidence: Sequence[EvidenceItem],
+) -> ProviderResult:
+    with measure_latency("answer_generation_ms"):
+        return provider.generate(question, evidence)
 
 
 def build_evidence(retrieved_chunks: Sequence[dict[str, Any]]) -> list[EvidenceItem]:
@@ -128,7 +138,7 @@ def _local_fallback(
     fallback_reason: str,
 ) -> dict[str, Any]:
     local_provider = DeterministicAnswerProvider()
-    local_result = local_provider.generate(question, evidence)
+    local_result = _generate_with_timing(local_provider, question, evidence)
     response = _ground_provider_result(local_result, retrieved_chunks, local_provider)
     response.update(
         {
@@ -184,7 +194,7 @@ def generate_answer_from_chunks(
             )
 
     try:
-        result = selected_provider.generate(question, evidence)
+        result = _generate_with_timing(selected_provider, question, evidence)
         if not isinstance(result, ProviderResult):
             raise TypeError("provider returned a non-ProviderResult value")
         return _ground_provider_result(result, retrieved_chunks, selected_provider)
@@ -217,7 +227,7 @@ def local_answer(question: str, retrieved_chunks: list[dict[str, Any]]) -> dict[
             provider.model_name,
         )
     return _ground_provider_result(
-        provider.generate(question, evidence),
+        _generate_with_timing(provider, question, evidence),
         retrieved_chunks,
         provider,
     )
@@ -249,12 +259,13 @@ def answer_question(
     query_id: str | None = None,
 ) -> dict[str, Any]:
     active_settings = settings or Settings.from_env()
-    retrieved_chunks = retrieve_context(
-        question,
-        top_k=top_k,
-        min_similarity=min_similarity,
-        settings=active_settings,
-    )
+    with measure_latency("retrieval_ms"):
+        retrieved_chunks = retrieve_context(
+            question,
+            top_k=top_k,
+            min_similarity=min_similarity,
+            settings=active_settings,
+        )
     response = generate_answer_from_chunks(
         question,
         retrieved_chunks,
