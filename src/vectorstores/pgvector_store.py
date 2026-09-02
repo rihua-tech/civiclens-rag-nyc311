@@ -11,6 +11,7 @@ from src.embeddings.providers import (
     EmbeddingSpec,
     validate_embedding,
 )
+from src.observability.latency import connect_with_latency
 from src.vectorstores.models import (
     VectorIdentity,
     VectorMatch,
@@ -210,7 +211,8 @@ class PgVectorStore:
     ) -> list[VectorMatch]:
         values = validate_embedding(vector, self._spec)
         query_vector = vector_literal(values)
-        with self._connect(self._settings.database_url) as connection:
+        connection = connect_with_latency(self._connect, self._settings.database_url)
+        with connection:
             with connection.cursor() as cursor:
                 validate_stored_embedding_profiles(
                     fetch_embedding_profiles(cursor),

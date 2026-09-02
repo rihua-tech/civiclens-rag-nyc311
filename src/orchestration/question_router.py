@@ -22,6 +22,12 @@ from src.observability.query_logger import (
     build_query_logger,
     build_query_observation,
 )
+from src.observability.latency import (
+    RequestLatency,
+    capture_request_latency,
+    emit_latency_event,
+    measure_latency,
+)
 from src.orchestration.route_decision import (
     InvalidQuestionError,
     QuestionRoute,
@@ -31,6 +37,11 @@ from src.retrieval.retrieve_context import DEFAULT_TOP_K, validate_top_k
 
 
 BACKEND_NOT_READY_MESSAGE = RAG_BACKEND_NOT_READY_MESSAGE
+
+
+def _decide_question_route_with_timing(question: str):
+    with measure_latency("routing_ms"):
+        return decide_question_route(question)
 
 
 def _direct_outcome(response: dict[str, Any]) -> str:
@@ -52,7 +63,7 @@ def _run_direct(
 ) -> dict[str, Any]:
     tool_call_count = 0
     try:
-        decision = decide_question_route(question)
+        decision = _decide_question_route_with_timing(question)
     except InvalidQuestionError:
         response = fallback_response()
         response["answer_status"] = AnswerStatus.ABSTAINED.value
@@ -106,6 +117,7 @@ def route_question(
     query_logger: QueryLogger | None = None,
     query_id_factory: Callable[[], str] | None = None,
     clock: Callable[[], float] = perf_counter,
+    latency_clock: Callable[[], float] = perf_counter,
 ) -> dict[str, Any]:
     """Route a question through predefined analytics or grounded RAG.
 
@@ -117,56 +129,77 @@ def route_question(
     validate_top_k(top_k)
     started_at = datetime.now(timezone.utc)
     started = clock()
+    request_timing = RequestLatency(clock=latency_clock)
+    latency_started = latency_clock()
+    response: dict[str, Any] = {}
+    query_id: str | None = None
     try:
-        active_settings = settings or Settings.from_env()
-    except Exception:
-        active_settings = None
+        with capture_request_latency(request_timing):
+            try:
+                active_settings = settings or Settings.from_env()
+            except Exception:
+                active_settings = None
 
-    query_id = None
-    if active_settings is not None and active_settings.observability_enabled:
-        id_factory = query_id_factory or (lambda: str(uuid4()))
-        query_id = id_factory()
+            if active_settings is not None and active_settings.observability_enabled:
+                id_factory = query_id_factory or (lambda: str(uuid4()))
+                query_id = id_factory()
 
-    if (
-        active_settings is not None
-        and active_settings.orchestration_mode == LANGGRAPH_ORCHESTRATION_MODE
-    ):
-        response = run_langgraph_workflow(
-            question,
-            top_k=top_k,
-            settings=active_settings,
+            if (
+                active_settings is not None
+                and active_settings.orchestration_mode == LANGGRAPH_ORCHESTRATION_MODE
+            ):
+                response = run_langgraph_workflow(
+                    question,
+                    top_k=top_k,
+                    settings=active_settings,
+                    query_id=query_id,
+                    dependencies=WorkflowDependencies(
+                        route_decider=_decide_question_route_with_timing,
+                        rag_answerer=answer_question,
+                        analytics_executor=execute_analytics_decision,
+                    ),
+                )
+            else:
+                response = _run_direct(
+                    question,
+                    top_k=top_k,
+                    settings=active_settings or settings,
+                    query_id=query_id,
+                )
+
+            if query_id is not None and active_settings is not None:
+                response["query_id"] = query_id
+                try:
+                    observation = build_query_observation(
+                        query_id=query_id,
+                        question=question,
+                        top_k=top_k,
+                        settings=active_settings,
+                        result=response,
+                        created_at=started_at,
+                        latency_ms=(clock() - started) * 1000.0,
+                    )
+                    active_logger = query_logger or build_query_logger(active_settings)
+                    active_logger.record_execution(observation)
+                    response["observability_status"] = "recorded"
+                except Exception:
+                    response.pop("query_id", None)
+                    response["observability_status"] = "logging_failed"
+
+            return response
+    finally:
+        mode = str(response.get("mode") or "unknown")
+        if mode in {"rag", "backend_error"}:
+            route = "rag"
+        elif mode in {"analytics", "fallback"}:
+            route = "analytics"
+        else:
+            route = "unknown"
+        outcome = str(response.get("orchestration_outcome") or "failed")
+        emit_latency_event(
+            request_timing,
+            route=route,
+            outcome=outcome,
+            total_ms=(latency_clock() - latency_started) * 1000.0,
             query_id=query_id,
-            dependencies=WorkflowDependencies(
-                route_decider=decide_question_route,
-                rag_answerer=answer_question,
-                analytics_executor=execute_analytics_decision,
-            ),
         )
-    else:
-        response = _run_direct(
-            question,
-            top_k=top_k,
-            settings=active_settings or settings,
-            query_id=query_id,
-        )
-
-    if query_id is not None and active_settings is not None:
-        response["query_id"] = query_id
-        try:
-            observation = build_query_observation(
-                query_id=query_id,
-                question=question,
-                top_k=top_k,
-                settings=active_settings,
-                result=response,
-                created_at=started_at,
-                latency_ms=(clock() - started) * 1000.0,
-            )
-            active_logger = query_logger or build_query_logger(active_settings)
-            active_logger.record_execution(observation)
-            response["observability_status"] = "recorded"
-        except Exception:
-            response.pop("query_id", None)
-            response["observability_status"] = "logging_failed"
-
-    return response
