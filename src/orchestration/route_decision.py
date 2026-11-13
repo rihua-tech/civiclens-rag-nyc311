@@ -305,13 +305,13 @@ def decide_question_route(question: str) -> RouteDecision:
     """Select one fixed route without executing RAG, tools, SQL, or model calls."""
 
     normalized = normalize_question(question).lower()
-    if looks_like_field_definition_question(normalized):
-        return RouteDecision(route=QuestionRoute.RAG)
     if looks_like_private_value_request(normalized):
         return RouteDecision(
             route=QuestionRoute.UNSUPPORTED_RAG,
             scope_reason="personal_contact_value",
         )
+    if looks_like_field_definition_question(normalized):
+        return RouteDecision(route=QuestionRoute.RAG)
     if looks_like_live_operational_request(normalized):
         return RouteDecision(
             route=live_request_route(normalized),

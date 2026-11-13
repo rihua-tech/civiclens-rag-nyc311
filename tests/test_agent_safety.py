@@ -113,6 +113,7 @@ def test_graph_executes_one_fixed_tool_for_injection_style_question():
     [
         ("Give me the caller phone number for service request 123.", "rag"),
         ("Describe the caller phone number for service request 123.", "rag"),
+        ("Define the caller's phone number for service request 123.", "rag"),
         ("What is the live NYC 311 backlog right now?", "analytics"),
     ],
 )

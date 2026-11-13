@@ -62,6 +62,7 @@ def test_unsupported_question_is_blocked_before_rag(monkeypatch, question):
         "What is the customer's home address for complaint 789?",
         "Describe the caller phone number for service request 123.",
         "Describe the caller's phone number documented for case 321.",
+        "Define the caller's phone number for service request 123.",
     ],
 )
 def test_private_contact_value_request_never_reaches_rag(monkeypatch, question):
@@ -113,6 +114,7 @@ def test_live_operational_request_never_executes_analytics_tool(monkeypatch, que
         "Does a closed request prove customer satisfaction?",
         "What limitations apply to customer satisfaction claims?",
         "Describe the caller_phone field.",
+        "Define the caller_phone field.",
     ],
 )
 def test_legitimate_documentation_words_and_adversarial_wrapping_reach_rag(
