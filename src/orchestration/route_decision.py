@@ -61,6 +61,7 @@ FIELD_INTENT_CUES = (
     "different",
     "compare",
     "comparison",
+    "describe",
     "explain",
     "interpret",
     "interpretation",
@@ -110,6 +111,7 @@ PERSONAL_SUBJECT_CUES = (
     "individual who filed",
 )
 DOCUMENTATION_INTENT_CUES = (
+    "documentation",
     "field guide",
     "field definition",
     "documented",
@@ -118,6 +120,23 @@ DOCUMENTATION_INTENT_CUES = (
     "dataset contain",
     "described",
     "describe",
+    "limitations",
+    "source says",
+    "evidence says",
+    "claims",
+)
+SATISFACTION_METRIC_CUES = (
+    "score",
+    "percentage",
+    "percent",
+    "rate",
+    "highest",
+    "lowest",
+    "rank",
+    "ranking",
+    "most satisfied",
+    "least satisfied",
+    "satisfaction level",
 )
 OPERATIONAL_SUBJECT_CUES = (
     "request",
@@ -131,6 +150,9 @@ OPERATIONAL_SUBJECT_CUES = (
 )
 SCHEMA_FIELD_PATTERN = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 FIELD_MEANING_PATTERN = re.compile(r"\bwhat do(?:es)?\b.+\bmean\b")
+SPECIFIC_RECORD_PATTERN = re.compile(
+    r"\b(?:service request|request|case|unique key|complaint)\s+#?\d+\b"
+)
 
 
 class QuestionRoute(StrEnum):
@@ -202,10 +224,7 @@ def looks_like_unsupported_analytics_question(normalized_question: str) -> bool:
     requests_live_data = "request" in lowered and any(
         cue in lowered for cue in LIVE_REQUEST_TIME_CUES
     )
-    requests_satisfaction_percentage = any(
-        cue in lowered for cue in SATISFACTION_CUES
-    ) and any(cue in lowered for cue in ("percentage", "percent"))
-    return requests_live_data or requests_satisfaction_percentage
+    return requests_live_data
 
 
 def looks_like_documentation_question(normalized_question: str) -> bool:
@@ -217,11 +236,22 @@ def looks_like_documentation_question(normalized_question: str) -> bool:
 
 def looks_like_private_value_request(normalized_question: str) -> bool:
     lowered = normalized_question.lower()
+    has_contact_value = any(cue in lowered for cue in PERSONAL_CONTACT_CUES)
+    has_personal_subject = any(cue in lowered for cue in PERSONAL_SUBJECT_CUES)
+    if not (has_contact_value and has_personal_subject):
+        return False
+    if SPECIFIC_RECORD_PATTERN.search(lowered) is not None:
+        return True
+    return not looks_like_documentation_question(lowered)
+
+
+def looks_like_unsupported_satisfaction_request(normalized_question: str) -> bool:
+    lowered = normalized_question.lower()
+    if not any(cue in lowered for cue in SATISFACTION_CUES):
+        return False
     if looks_like_documentation_question(lowered):
         return False
-    return any(cue in lowered for cue in PERSONAL_CONTACT_CUES) and any(
-        cue in lowered for cue in PERSONAL_SUBJECT_CUES
-    )
+    return any(cue in lowered for cue in SATISFACTION_METRIC_CUES)
 
 
 def looks_like_live_operational_request(normalized_question: str) -> bool:
@@ -244,7 +274,7 @@ def looks_like_live_operational_request(normalized_question: str) -> bool:
 def live_request_route(normalized_question: str) -> QuestionRoute:
     lowered = normalized_question.lower()
     is_specific_record = bool(
-        re.search(r"\b(?:service request|request|case|unique key)\s+#?\d+\b", lowered)
+        SPECIFIC_RECORD_PATTERN.search(lowered)
     )
     return (
         QuestionRoute.UNSUPPORTED_RAG
@@ -287,7 +317,7 @@ def decide_question_route(question: str) -> RouteDecision:
             route=live_request_route(normalized),
             scope_reason="live_or_future_operational_data",
         )
-    if any(cue in normalized for cue in SATISFACTION_CUES):
+    if looks_like_unsupported_satisfaction_request(normalized):
         return RouteDecision(
             route=QuestionRoute.UNSUPPORTED_RAG,
             scope_reason="unsupported_performance_metric",

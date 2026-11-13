@@ -63,6 +63,27 @@ def _settings(mode: str = "direct") -> Settings:
             QuestionRoute.UNSUPPORTED_RAG,
             None,
         ),
+        (
+            "Describe the caller phone number for service request 123.",
+            QuestionRoute.UNSUPPORTED_RAG,
+            None,
+        ),
+        (
+            "Does a closed request prove customer satisfaction?",
+            QuestionRoute.RAG,
+            None,
+        ),
+        (
+            "What limitations apply to customer satisfaction claims?",
+            QuestionRoute.RAG,
+            None,
+        ),
+        (
+            "Which agency has the highest customer satisfaction score?",
+            QuestionRoute.UNSUPPORTED_RAG,
+            None,
+        ),
+        ("Describe the caller_phone field.", QuestionRoute.RAG, None),
         ("What does complaint_type mean?", QuestionRoute.RAG, None),
         ("Define complaint_type.", QuestionRoute.RAG, None),
         ("What does descriptor mean?", QuestionRoute.RAG, None),
