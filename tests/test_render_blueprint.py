@@ -41,8 +41,10 @@ def test_blueprint_defines_only_the_two_free_oregon_docker_web_services():
         assert service["plan"] == "free"
         assert service["region"] == "oregon"
         assert service["dockerContext"] == "."
-        assert service["autoDeployTrigger"] == "off"
         assert "branch" not in service
+
+    assert _service(blueprint, "civiclens-api")["autoDeployTrigger"] == "checksPass"
+    assert _service(blueprint, "civiclens-ui")["autoDeployTrigger"] == "off"
 
 
 def test_api_uses_operator_managed_database_and_verified_hosted_profile():
