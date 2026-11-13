@@ -250,6 +250,9 @@ def test_mocked_openai_answer_uses_responses_structured_output():
 def test_openai_rules_preserve_explicit_evidence_distinctions():
     assert "API field name versus a current or former display label" in APPLICATION_RULES
     assert "do not describe one as the other" in APPLICATION_RULES
+    assert "shared keywords, or a valid citation ID alone is not sufficient" in APPLICATION_RULES
+    assert "Every material claim" in APPLICATION_RULES
+    assert "Citation IDs identify provenance only" in APPLICATION_RULES
 
 
 def test_openai_rules_keep_single_metric_answers_concise_and_allow_ratio_conversion():
@@ -277,6 +280,8 @@ def test_mocked_openai_abstention_is_safe():
 
     assert response["answer"] == NO_ANSWER
     assert response["answer_status"] == "abstained"
+    assert response["sources"] == []
+    assert response["citation_ids"] == []
 
 
 def test_malformed_provider_output_is_rejected():

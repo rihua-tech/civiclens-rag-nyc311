@@ -19,6 +19,8 @@ from src.generation.providers import (
 from src.generation.providers.base import AnswerProviderError
 from src.generation.schemas import AnswerStatus, EvidenceItem, NO_ANSWER, ProviderResult
 from src.observability.latency import measure_latency
+from src.orchestration.route_decision import QuestionRoute, decide_question_route
+from src.orchestration.scope_guard import scope_abstention_response
 from src.retrieval.retrieve_context import DEFAULT_MIN_SIMILARITY, retrieve_context
 
 
@@ -107,8 +109,16 @@ def _ground_provider_result(
     if result.status is AnswerStatus.ABSTAINED:
         answer = NO_ANSWER
         confidence_note = "The answer provider abstained because evidence was insufficient."
+        sources: list[dict[str, Any]] = []
+        citation_ids: list[str] = []
+        rejected_citation_ids = list(
+            dict.fromkeys((*validation.valid_ids, *validation.invalid_ids))
+        )
     else:
         answer = add_validated_display_citations(result.answer, validation.sources)
+        sources = list(validation.sources)
+        citation_ids = list(validation.valid_ids)
+        rejected_citation_ids = list(validation.invalid_ids)
         confidence_note = (
             OPENAI_CONFIDENCE_NOTE
             if provider_name == OPENAI_ANSWER_PROVIDER
@@ -117,14 +127,14 @@ def _ground_provider_result(
 
     return {
         "answer": answer,
-        "sources": list(validation.sources),
+        "sources": sources,
         "confidence_note": confidence_note,
         "retrieved_chunks": retrieved_chunks,
         "answer_status": result.status.value,
         "answer_provider": provider_name,
         "answer_model": provider_model,
-        "citation_ids": list(validation.valid_ids),
-        "rejected_citation_ids": list(validation.invalid_ids),
+        "citation_ids": citation_ids,
+        "rejected_citation_ids": rejected_citation_ids,
         "provider_called": True,
         "fallback_used": False,
     }
@@ -258,6 +268,9 @@ def answer_question(
     settings: Settings | None = None,
     query_id: str | None = None,
 ) -> dict[str, Any]:
+    decision = decide_question_route(question)
+    if decision.route is not QuestionRoute.RAG:
+        return scope_abstention_response(decision)
     active_settings = settings or Settings.from_env()
     with measure_latency("retrieval_ms"):
         retrieved_chunks = retrieve_context(

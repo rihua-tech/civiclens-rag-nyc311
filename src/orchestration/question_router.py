@@ -33,6 +33,7 @@ from src.orchestration.route_decision import (
     QuestionRoute,
     decide_question_route,
 )
+from src.orchestration.scope_guard import scope_abstention_response
 from src.retrieval.retrieve_context import DEFAULT_TOP_K, validate_top_k
 
 
@@ -73,9 +74,11 @@ def _run_direct(
         if decision.route is QuestionRoute.ANALYTICS:
             response = execute_analytics_decision(decision)
             tool_call_count = 1
-        elif decision.route is QuestionRoute.UNSUPPORTED_ANALYTICS:
-            response = fallback_response()
-            response["answer_status"] = AnswerStatus.ABSTAINED.value
+        elif decision.route in {
+            QuestionRoute.UNSUPPORTED_RAG,
+            QuestionRoute.UNSUPPORTED_ANALYTICS,
+        }:
+            response = scope_abstention_response(decision)
         else:
             try:
                 response = answer_question(

@@ -103,10 +103,31 @@ def test_evaluate_question_accepts_safe_no_answer_response():
     )
     response = {
         "answer": NO_ANSWER,
+        "answer_status": "abstained",
         "sources": [],
         "mode": "rag",
     }
 
     result = evaluate_question(question, response)
+
+    assert result.passed
+
+
+def test_evaluate_question_prefers_structured_abstention_over_exact_text():
+    question = EvaluationQuestion(
+        question="unsupported",
+        category="no_answer",
+        expected_behavior="safe_no_answer",
+    )
+
+    result = evaluate_question(
+        question,
+        {
+            "answer": "A safe application-owned refusal.",
+            "answer_status": "abstained",
+            "sources": [],
+            "mode": "rag",
+        },
+    )
 
     assert result.passed

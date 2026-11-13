@@ -26,6 +26,7 @@ class WorkflowState(TypedDict):
     settings: Settings
     query_id: str | None
     route: QuestionRoute | None
+    scope_reason: str | None
     tool_id: AnalyticsToolId | None
     tool_arguments: dict[str, Any]
     result: dict[str, Any] | None

@@ -14,6 +14,8 @@ Expected-source retrieval is measured independently at document level. It checks
 
 The fixture covers NYC 311 field definitions, architecture, runbooks, predefined analytics, safe no-answer cases, negative cases, and adversarial/misleading questions. Phase 1 cases are retained with `phase1_legacy=true`; Issue 10 additions use `false`.
 
+Phase 0 retains these 24 questions as a regression dataset. The 20-question `p0_development_questions.csv` is the only behavioral tuning set. The 12-question `p0_holdout_nonblind_questions.csv` was SHA-256 frozen before behavioral changes, but it is explicitly non-blind because the implementation agent could inspect it. Its manifest prohibits an independent-test claim.
+
 ## Retrieval Metrics
 
 For an eligible question, Recall@k is:
@@ -41,8 +43,12 @@ The framework reports these independently rather than combining them into a vagu
 - routing accuracy for document RAG, predefined analytics, and expected safe paths;
 - citation presence when a cited answer is expected;
 - citation validity against the actual retrieved chunk/source metadata;
-- safe no-answer accuracy;
+- abstention recall over questions expected to abstain;
+- false-abstention rate over questions expected to answer;
+- abstention integrity over actual abstentions (no sources, citation IDs, or display citations);
 - unsupported-answer count and rate.
+
+Phase 0 reports the three abstention measures separately. It prefers structured `answer_status`; exact `NO_ANSWER` comparison is retained only as a labeled legacy inference when a response has no structured status. A valid citation ID proves only that the cited chunk was retrieved and application-authorized. It does not prove that the answer wording is entailed by the chunk, so representative answers are reviewed manually without an LLM judge.
 
 Arbitrary or fabricated citation numbers are invalid. Machine-readable reports retain per-question results, retrieved ranks/scores, configuration, and failed-case diagnostics.
 

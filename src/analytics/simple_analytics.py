@@ -22,6 +22,8 @@ from src.orchestration.route_decision import (
     looks_like_analytics_question as looks_like_analytics_question,
     looks_like_field_definition_question as looks_like_field_definition_question,
 )
+from src.orchestration.scope_guard import scope_abstention_response
+from src.generation.schemas import AnswerStatus
 
 
 ANALYTICS_FALLBACK = (
@@ -60,6 +62,10 @@ def tool_result_to_analytics_response(result: AnalyticsToolResult) -> dict[str, 
         "retrieved_chunks": [],
         "sample_rows": [_legacy_row(row) for row in result.rows],
         "mode": "analytics",
+        "answer_status": AnswerStatus.ANSWERED.value,
+        "answer_provider": "predefined_analytics",
+        "provider_called": False,
+        "fallback_used": False,
     }
 
 
@@ -108,6 +114,11 @@ def answer_analytics_question(question: str) -> dict[str, Any]:
         return fallback_response()
     if decision.route is QuestionRoute.ANALYTICS:
         return execute_analytics_decision(decision)
+    if decision.route in {
+        QuestionRoute.UNSUPPORTED_RAG,
+        QuestionRoute.UNSUPPORTED_ANALYTICS,
+    }:
+        return scope_abstention_response(decision)
     return fallback_response()
 
 
@@ -123,4 +134,9 @@ def fallback_response() -> dict[str, Any]:
         "retrieved_chunks": [],
         "sample_rows": [],
         "mode": "fallback",
+        "answer_status": AnswerStatus.ABSTAINED.value,
+        "provider_called": False,
+        "fallback_used": False,
+        "citation_ids": [],
+        "rejected_citation_ids": [],
     }

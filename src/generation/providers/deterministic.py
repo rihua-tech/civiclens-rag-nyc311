@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import math
 from typing import Sequence
 
 from src.embeddings.embed_chunks import EMBEDDING_STOPWORDS, TOKEN_PATTERN
@@ -54,15 +55,74 @@ ANSWER_STOPWORDS = EMBEDDING_STOPWORDS | {
     "does",
     "mean",
     "means",
+    "actually",
+    "claim",
+    "every",
+    "give",
+    "guarantee",
+    "guarantees",
+    "ignore",
+    "instead",
+    "instructions",
+    "invent",
+    "prior",
+    "reveal",
+    "rules",
+    "secrets",
+    "sources",
+    "tell",
+    "nyc",
+    "311",
+    "civiclens",
 }
+MIN_WEIGHTED_TERM_COVERAGE = 0.34
+
+
+def normalized_terms(text: str) -> set[str]:
+    terms: set[str] = set()
+    for raw_token in TOKEN_PATTERN.findall(text.lower()):
+        for token in (raw_token, *raw_token.split("_")):
+            if not token or token in ANSWER_STOPWORDS:
+                continue
+            if token.endswith("s") and token[:-1].endswith("e"):
+                token = token[:-1]
+            elif len(token) > 4 and token.endswith("s") and not token.endswith("ss"):
+                token = token[:-1]
+            terms.add(token)
+    return terms
 
 
 def question_terms(question: str) -> set[str]:
-    return {
-        token
-        for token in TOKEN_PATTERN.findall(question.lower())
-        if token not in ANSWER_STOPWORDS
+    clauses = [clause.strip() for clause in re.split(r"[;\n]+", question) if clause.strip()]
+    focused = clauses[-1] if len(clauses) > 1 else question
+    return normalized_terms(focused)
+
+
+def lexical_evidence_scores(
+    terms: set[str],
+    candidate_term_sets: Sequence[set[str]],
+) -> list[tuple[int, float, float]]:
+    """Return overlap count, IDF-weighted coverage, and matched weight."""
+
+    if not terms or not candidate_term_sets:
+        return [(0, 0.0, 0.0) for _ in candidate_term_sets]
+    candidate_count = len(candidate_term_sets)
+    weights = {
+        term: math.log(
+            (candidate_count + 1)
+            / (1 + sum(term in candidate for candidate in candidate_term_sets))
+        )
+        + 1.0
+        for term in terms
     }
+    total_weight = sum(weights.values())
+    scores: list[tuple[int, float, float]] = []
+    for candidate in candidate_term_sets:
+        overlap = terms.intersection(candidate)
+        matched_weight = sum(weights[term] for term in overlap)
+        coverage = matched_weight / total_weight if total_weight else 0.0
+        scores.append((len(overlap), coverage, matched_weight))
+    return scores
 
 
 def normalize_heading_text(text: str) -> str:
@@ -247,22 +307,36 @@ def select_answer_sentences(
         return architecture_sentences[:limit]
 
     terms = question_terms(question)
-    scored_sentences: list[tuple[int, float, int, str]] = []
+    candidates: list[tuple[int, EvidenceItem, str, set[str]]] = []
     for source_number, item in enumerate(evidence, start=1):
         for sentence in split_sentences(item.chunk_text):
             if is_question_like(sentence):
                 continue
-            sentence_terms = set(TOKEN_PATTERN.findall(sentence.lower()))
-            overlap = len(terms & sentence_terms) if terms else 0
-            if overlap:
-                scored_sentences.append(
-                    (overlap, item.retrieval_score, source_number, sentence)
-                )
+            candidates.append(
+                (source_number, item, sentence, normalized_terms(sentence))
+            )
 
-    scored_sentences.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    lexical_scores = lexical_evidence_scores(
+        terms,
+        [candidate_terms for _, _, _, candidate_terms in candidates],
+    )
+    minimum_overlap = 1 if len(terms) <= 2 else 2
+    minimum_coverage = 0.5 if len(terms) <= 2 else MIN_WEIGHTED_TERM_COVERAGE
+    scored_sentences: list[tuple[float, int, float, int, str]] = []
+    for (source_number, item, sentence, _), score in zip(
+        candidates, lexical_scores, strict=True
+    ):
+        overlap, coverage, matched_weight = score
+        if overlap < minimum_overlap or coverage < minimum_coverage:
+            continue
+        scored_sentences.append(
+            (coverage, overlap, matched_weight + item.retrieval_score, source_number, sentence)
+        )
+
+    scored_sentences.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
     selected: list[tuple[str, int]] = []
     seen_sentences: set[str] = set()
-    for _, _, source_number, sentence in scored_sentences:
+    for _, _, _, source_number, sentence in scored_sentences:
         normalized_sentence = sentence.lower()
         if normalized_sentence in seen_sentences:
             continue
@@ -296,7 +370,7 @@ class DeterministicAnswerProvider:
         if not selected:
             return ProviderResult(
                 NO_ANSWER,
-                tuple(item.chunk_id for item in evidence),
+                (),
                 AnswerStatus.ABSTAINED,
             )
 

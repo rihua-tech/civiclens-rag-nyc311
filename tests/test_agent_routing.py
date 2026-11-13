@@ -53,6 +53,16 @@ def _settings(mode: str = "direct") -> Settings:
             AnalyticsToolId.BACKLOG_SUMMARY,
         ),
         ("Compare requests by weekday", QuestionRoute.UNSUPPORTED_ANALYTICS, None),
+        (
+            "What is the live NYC 311 backlog right now?",
+            QuestionRoute.UNSUPPORTED_ANALYTICS,
+            None,
+        ),
+        (
+            "Give me the caller phone number for service request 123.",
+            QuestionRoute.UNSUPPORTED_RAG,
+            None,
+        ),
         ("What does complaint_type mean?", QuestionRoute.RAG, None),
         ("Define complaint_type.", QuestionRoute.RAG, None),
         ("What does descriptor mean?", QuestionRoute.RAG, None),
