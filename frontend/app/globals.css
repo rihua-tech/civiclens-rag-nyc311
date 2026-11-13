@@ -520,8 +520,8 @@ textarea::placeholder {
 
 .capability-item small {
   margin-top: 1px;
-  color: var(--muted);
-  font-size: 0.66rem;
+  color: #486266;
+  font-size: 0.78rem;
   line-height: 1.35;
 }
 
@@ -603,8 +603,8 @@ textarea::placeholder {
 .state-card p {
   max-width: 720px;
   margin: 0;
-  color: var(--muted);
-  font-size: 0.84rem;
+  color: #486266;
+  font-size: 0.875rem;
   line-height: 1.65;
 }
 
@@ -924,8 +924,8 @@ dd {
 .evaluation-summary {
   max-width: 620px;
   margin: 7px 0 0;
-  color: var(--muted);
-  font-size: 0.82rem;
+  color: #486266;
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 
@@ -958,9 +958,15 @@ dd {
   color: #5c7074;
 }
 
+.evaluation-metadata dt {
+  color: #486266;
+  font-size: 0.8rem;
+}
+
 .evaluation-metadata dd {
+  color: #40585c;
   font-family: inherit;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
 }
 
 .evaluation-metrics {
@@ -1006,14 +1012,14 @@ dd {
 
 .metric-sample {
   color: var(--teal-dark);
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   font-weight: 750;
 }
 
 .metric-card p {
   margin: 9px 0 0;
-  color: var(--muted);
-  font-size: 0.82rem;
+  color: #486266;
+  font-size: 0.875rem;
   line-height: 1.45;
 }
 
@@ -1040,15 +1046,15 @@ dd {
 .evaluation-configuration dd {
   color: #40585c;
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 
 .evaluation-notes p,
 .evaluation-unavailable p {
   margin: 0;
-  color: var(--muted);
-  font-size: 0.82rem;
+  color: #486266;
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 
@@ -1073,7 +1079,7 @@ dd {
   gap: 7px;
   margin-top: 10px;
   color: var(--teal-dark);
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 800;
   text-decoration: none;
 }
