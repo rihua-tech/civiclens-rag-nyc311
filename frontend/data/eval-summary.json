@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "evaluation_date": "2026-11-13",
+  "dataset_version": "issue10-v1",
+  "metric_definition_version": "p0-report-v2",
+  "question_count": 24,
+  "benchmark_scope": "local",
+  "configuration": {
+    "retrieval_profile": "Hybrid retrieval",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "embedding_dimensions": 384,
+    "vector_store": "PostgreSQL + pgvector",
+    "retrieval_k": 5,
+    "reranking_enabled": false,
+    "answer_provider": "OpenAI",
+    "answer_model": "gpt-4o-mini",
+    "provider_calls": 16,
+    "provider_fallbacks": 0
+  },
+  "metrics": [
+    {
+      "id": "hybrid_recall_at_5",
+      "label": "Hybrid Recall@5",
+      "value": 0.8393,
+      "sample_count": 14,
+      "description": "Relevant labeled sections retrieved within the top five."
+    },
+    {
+      "id": "abstention_recall",
+      "label": "Abstention Recall",
+      "value": 1.0,
+      "sample_count": 6,
+      "description": "Unsupported questions correctly abstained."
+    },
+    {
+      "id": "false_abstention_rate",
+      "label": "False Abstention Rate",
+      "value": 0.0556,
+      "sample_count": 18,
+      "description": "Answerable questions incorrectly declined by the system."
+    },
+    {
+      "id": "citation_id_validity",
+      "label": "Citation ID Validity",
+      "value": 0.9286,
+      "sample_count": 14,
+      "description": "Cited identifiers matched returned evidence."
+    }
+  ],
+  "scope_note": "Local benchmark only. These measurements do not represent hosted Vercel or Render performance or latency.",
+  "citation_validity_note": "Citation ID validity verifies that cited IDs match returned evidence; it does not measure factual answer accuracy.",
+  "publication_note": "Version-controlled snapshot derived from the approved P0 report; updates require review and validation.",
+  "source_report": {
+    "label": "Read the full evaluation report",
+    "url": "https://github.com/rihua-tech/civiclens-rag-nyc311/blob/main/docs/evaluation-p0-report.md"
+  }
+}

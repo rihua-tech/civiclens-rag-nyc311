@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, ReactNode, useRef, useState } from "react";
 
 import {
   AnswerResponse,
@@ -80,6 +80,7 @@ const TECHNICAL_PROOF = [
 
 interface CivicLensExperienceProps {
   askQuestion?: AskQuestion;
+  evaluationProof?: ReactNode;
 }
 
 function ProductIcon({ name }: { name: ProductIconName }) {
@@ -165,7 +166,10 @@ function errorTitle(kind: CivicLensClientError["kind"]): string {
   return labels[kind];
 }
 
-export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExperienceProps) {
+export function CivicLensExperience({
+  askQuestion = askCivicLens,
+  evaluationProof,
+}: CivicLensExperienceProps) {
   const [question, setQuestion] = useState("");
   const [response, setResponse] = useState<AnswerResponse | null>(null);
   const [error, setError] = useState<CivicLensClientError | null>(null);
@@ -351,7 +355,7 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
               <div>
                 <span className="state-label">Request in progress</span>
                 <h2>Reviewing the available evidence…</h2>
-                <p>Free demo infrastructure can take extra time to wake from a cold start.</p>
+                <p>CivicLens is retrieving context and validating the available evidence.</p>
               </div>
             </div>
           )}
@@ -477,6 +481,8 @@ export function CivicLensExperience({ askQuestion = askCivicLens }: CivicLensExp
           )}
         </div>
       </section>
+
+      {evaluationProof}
 
       <section
         className="technical-proof"

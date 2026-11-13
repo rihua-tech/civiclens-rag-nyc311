@@ -46,6 +46,25 @@ npm run build
 Tests mock the browser HTTP boundary and do not call Render, Vercel, OpenAI,
 Pinecone, model registries, or other live services.
 
+## Evaluation Proof
+
+The homepage Evaluation Proof section uses the version-controlled
+`frontend/data/eval-summary.json` artifact.
+`frontend/lib/evaluation-summary.ts` validates its schema, metric ranges,
+required metric IDs, and sample counts before the page passes the data to the
+presentation component.
+
+The artifact is loaded from the filesystem at build/render time. It is a
+reviewed snapshot, not live monitoring and not automatic synchronization with
+an evaluation service. Missing, malformed, or invalid data returns a safe
+"Benchmark summary unavailable" state instead of displaying unvalidated
+scores.
+
+Metric updates require approved evaluation evidence, corresponding report
+changes, and successful artifact/component validation. The current values are
+explicitly local benchmark results and must not be described as hosted Vercel
+or Render performance.
+
 ## Vercel deployment boundary
 
 1. Create or select the Vercel project only after repository review.

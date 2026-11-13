@@ -173,6 +173,10 @@ describe("CivicLensExperience", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "Reviewing the available evidence…",
     );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "CivicLens is retrieving context and validating the available evidence.",
+    );
+    expect(screen.getByRole("status")).not.toHaveTextContent(/cold start|free demo/i);
 
     resolveRequest?.(RAG_RESPONSE);
     expect(await screen.findByRole("heading", { name: "Grounded RAG" })).toBeVisible();
