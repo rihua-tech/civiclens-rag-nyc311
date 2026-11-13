@@ -117,7 +117,10 @@ describe("askCivicLens", () => {
     await expect(request).rejects.toMatchObject({
       kind: "timeout",
       code: "request_timeout",
+      userMessage:
+        "CivicLens did not complete the request before it timed out. Please try again.",
     });
+    await expect(request).rejects.not.toThrow(/cold start|Render/i);
   });
 
   it("rejects malformed JSON", async () => {

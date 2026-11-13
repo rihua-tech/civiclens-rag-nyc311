@@ -201,7 +201,7 @@ export const askCivicLens: AskQuestion = async (question, options = {}) => {
     if (timedOut || (error instanceof DOMException && error.name === "AbortError")) {
       throw new CivicLensClientError(
         "timeout",
-        "CivicLens took too long to respond. A Render cold start may still be in progress; please try again.",
+        "CivicLens did not complete the request before it timed out. Please try again.",
         "request_timeout",
       );
     }
