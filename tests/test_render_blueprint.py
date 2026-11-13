@@ -26,7 +26,7 @@ def _environment(service: dict) -> dict[str, dict]:
     return {item["key"]: item for item in service["envVars"]}
 
 
-def test_blueprint_defines_only_the_two_free_oregon_docker_web_services():
+def test_blueprint_defines_only_the_two_oregon_docker_web_services():
     assert BLUEPRINT_PATH.is_file()
     blueprint = _blueprint()
 
@@ -38,11 +38,12 @@ def test_blueprint_defines_only_the_two_free_oregon_docker_web_services():
     for service in blueprint["services"]:
         assert service["type"] == "web"
         assert service["runtime"] == "docker"
-        assert service["plan"] == "free"
         assert service["region"] == "oregon"
         assert service["dockerContext"] == "."
         assert "branch" not in service
 
+    assert _service(blueprint, "civiclens-api")["plan"] == "0.5c-512mb"
+    assert _service(blueprint, "civiclens-ui")["plan"] == "free"
     assert _service(blueprint, "civiclens-api")["autoDeployTrigger"] == "checksPass"
     assert _service(blueprint, "civiclens-ui")["autoDeployTrigger"] == "off"
 
