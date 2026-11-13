@@ -14,18 +14,20 @@ The project emphasizes traceable ingestion, measurable retrieval, reproducible e
 
 ![CivicLens AI assistant returning a grounded answer with backend-validated citations](docs/screenshots/issue20-vercel-grounded-rag.png)
 
-The browser calls Render FastAPI directly. Grounded RAG answers use retrieved evidence and CivicLens-owned citation validation; approved analytics reads checked-in sample CSV outputs; unsupported questions abstain with zero fabricated sources.
+The Vercel-hosted Next.js browser client calls the Render-hosted FastAPI application directly. The API runs on Render's paid `0.5c-512mb` instance and connects to Neon PostgreSQL + pgvector. Grounded RAG answers use retrieved evidence and CivicLens-owned citation validation; approved analytics reads checked-in sample CSV outputs; unsupported questions abstain with zero fabricated sources.
 
 [View Approved Analytics proof](docs/screenshots/issue20-vercel-analytics.png) · [View Safe Abstention proof](docs/screenshots/issue20-vercel-safe-abstention.png)
 
-The hosted deployment is non-production and may pause while its Render backend cold-starts.
+This remains a non-production portfolio deployment. The paid API plan avoids intentional Render Free-tier sleep, but CivicLens provides no uptime, latency, or availability guarantee.
 
 ## Proof at a Glance
 
 - **Traceable knowledge:** a version-controlled manifest validates normalized hashes, provenance, stable document IDs, and section-aware chunk IDs.
 - **Hybrid retrieval:** dense semantic and PostgreSQL full-text candidates are fused with deterministic Reciprocal Rank Fusion (RRF), with optional bounded reranking.
-- **Measured performance:** on the approved 14-question real-local retrieval subset, hybrid search reached `0.8393` Recall@5 and `0.9286` expected-source retrieval.
+- **Historical retrieval evidence:** in the approved August 2026 real-local comparison, hybrid search reached `0.8393` Recall@5 and `0.9286` expected-source retrieval on 14 retrieval-eligible questions.
 - **Grounded and safe answers:** generation receives allowlisted evidence; application-owned validation rejects fabricated citations and safely abstains when evidence is insufficient.
+- **P0 abstention reliability:** structured abstention metrics, shared scope guards, citation-free refusals, and separate unsupported-answer checks improve evaluation integrity across direct and bounded LangGraph orchestration.
+- **Homepage evaluation proof:** the Next.js homepage renders reviewed local Hybrid + OpenAI metrics from a validated, version-controlled artifact, with an unavailable state for missing or invalid data and an explicit boundary from hosted performance.
 - **Bounded AI workflows:** four typed, allowlisted, read-only analytics tools share the FastAPI boundary with document RAG; direct orchestration is default and bounded LangGraph is optional.
 - **Runnable and auditable:** Next.js and Streamlit consume the versioned API contract, while Docker and isolated CI paths provide reproducible application and delivery proof.
 
@@ -101,7 +103,9 @@ PostgreSQL remains authoritative for document/chunk text, metadata, provenance, 
 
 ## Evaluation
 
-The approved real-local Advanced RAG comparison uses a **24-question curated fixture**, with **14 retrieval-eligible questions**, section-level relevance, PostgreSQL/pgvector, and cached local models.
+### Historical August 2026 baseline
+
+The approved Issue 10 real-local Advanced RAG comparison used a **24-question curated fixture**, with **14 retrieval-eligible questions**, section-level relevance, PostgreSQL/pgvector, and cached local models. These published August 2026 results use the earlier metric definition and were not rerun as the P0 pre-fix environment.
 
 | Strategy | Recall@5 | MRR | Expected source |
 |---|---:|---:|---:|
@@ -109,7 +113,23 @@ The approved real-local Advanced RAG comparison uses a **24-question curated fix
 | Hybrid | 0.8393 | 0.7071 | 0.9286 |
 | Hybrid + reranking | 0.8214 | 0.7619 | 0.9286 |
 
-This is a small portfolio benchmark, not evidence of production reliability, benchmark leadership, or statistical significance. Known failures remain visible: four questions expected to abstain were answered, and one adversarial question routed to predefined analytics. See the [evaluation report](docs/evaluation-report.md) and [methodology](docs/evaluation-notes.md).
+The historical application results also recorded four questions expected to abstain that were answered, plus one adversarial question routed to predefined analytics. Those failures remain documented in the [historical Issue 10 evaluation report](docs/evaluation-report.md); they are not presented as the current P0 result.
+
+### Corrected November 2026 P0 evaluation
+
+P0 corrected the semantics around structured `answer_status`, abstention recall, false-abstention rate, citation-free abstentions, provider/fallback accounting, and unsupported-answer checks. It also added shared pre-execution scope handling for private contact values and unsupported live/current requests. The latest reviewed **LOCAL** Hybrid + OpenAI profile used Sentence Transformers (`all-MiniLM-L6-v2`, 384 dimensions), PostgreSQL + pgvector, `k=5`, no reranking, and structured `gpt-4o-mini` answers.
+
+| Metric | LOCAL result | Sample |
+|---|---:|---:|
+| Recall@5 | 83.93% | n=14 |
+| Abstention Recall | 100.00% | n=6 |
+| False Abstention Rate | 5.56% | n=18 |
+| Citation ID Validity | 92.86% | n=14 |
+| Unsupported Answers | 0/24 | n=24 |
+
+These are **LOCAL evaluation results**, not measurements of the Vercel/Render deployment, hosted latency, or hosted reliability. Citation ID validity checks whether cited identifiers match returned evidence; it does not establish factual answer accuracy or full semantic support.
+
+The [P0 evaluation report](docs/evaluation-p0-report.md) preserves important profile-specific limitations. Its corrected offline deterministic regression accepts one additional conservative false abstention (`q004`) rather than weakening evidence sufficiency. Its 12-question holdout is explicitly non-blind and cannot support an independent-test claim. Manual review also found partial or nonresponsive answers despite valid citation IDs. See the [historical Issue 10 report](docs/evaluation-report.md) and [evaluation methodology](docs/evaluation-notes.md) for the separate historical, deterministic, real-local, and hosted boundaries.
 
 ## Key Capabilities
 
@@ -175,9 +195,10 @@ The default local semantic model may download weights on first use. For non-cont
 - CivicLens uses a small curated corpus rather than live NYC 311 ingestion. Analytics is fixed, typed, read-only, and backed by checked-in sample CSV outputs—not unrestricted text-to-SQL.
 - Repository defaults keep OpenAI optional and disabled, with native CivicLens RAG and pgvector as defaults. The hosted demo uses deterministic 1536-dimensional embeddings in Neon PostgreSQL + pgvector, hybrid retrieval, and `ANSWER_PROVIDER=openai` for grounded generation.
 - Pinecone has real-SDK tests against fakes/mocks, but no successful live Pinecone smoke test is claimed.
-- The dated Render/Vercel proof is time-limited and non-production, with cold starts and no continuous availability claim. It provides no production authentication, authorization, HA, autoscaling, disaster recovery, rate limiting, hosted/production monitoring, retention guarantee, or SLA.
+- The Render API uses the paid `0.5c-512mb` plan rather than a sleeping Free instance, but the Vercel/Render demo remains non-production and makes no continuous availability or response-time claim. It provides no production authentication, authorization, HA, autoscaling, disaster recovery, rate limiting, hosted/production monitoring, retention guarantee, or SLA.
 - Bounded LangGraph is not an autonomous agent. Next.js is the product UI; Streamlit remains the engineering, validation, and debugging interface.
-- The evaluation fixture is small and includes documented abstention and routing failures; it does not establish production answer quality, reliability, or statistical significance.
+- The evaluation fixture is small, curated, and locally measured. Its Sentence Transformers + OpenAI metrics are not hosted results and do not establish production answer quality, reliability, latency, or statistical significance.
+- The historical August report retains its original abstention/routing failures. The corrected P0 report separately retains the conservative offline deterministic `q004` refusal, a non-blind holdout, and manual-review cases where valid citation IDs did not guarantee a fully supported answer.
 
 ## Deep-Dive Documentation
 
@@ -185,9 +206,10 @@ The default local semantic model may download weights on first use. For non-cont
 - [Architecture](docs/architecture.md) — component boundaries, data flow, orchestration, observability, and deployment architecture
 - [RAG design](docs/rag-design.md) — ingestion, embeddings, vector providers, hybrid retrieval, grounding, citations, and operations
 - [Data sources](docs/data-sources.md) — curated inventory, official provenance, manifest rules, and scope
-- [Evaluation report](docs/evaluation-report.md) — approved measured baseline and known failed cases
+- [P0 evaluation report](docs/evaluation-p0-report.md) — corrected November 2026 metrics, real-local/OpenAI profiles, manual-review boundary, and remaining tradeoffs
+- [Historical Issue 10 evaluation report](docs/evaluation-report.md) — approved August 2026 baseline and original failed cases
 - [Evaluation methodology](docs/evaluation-notes.md) — fixture, metrics, denominators, profiles, and commands
 - [Deployment proof](docs/deployment.md) — dated Render/Vercel evidence, reproduction notes, costs, and teardown limitations
-- [Frontend setup](frontend/README.md) — local Next.js workflow, direct API boundary, quality commands, and Vercel configuration order
+- [Frontend setup](frontend/README.md) — local Next.js workflow, validated Evaluation Proof artifact, direct API boundary, quality commands, and Vercel configuration order
 - [Framework ADR](docs/adr/001-rag-framework-selection.md) — LangChain Core versus LlamaIndex Core decision
 - [Configuration](.env.example) — default and optional server-side settings
