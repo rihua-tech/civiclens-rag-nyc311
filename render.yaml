@@ -2,7 +2,7 @@ services:
   - name: civiclens-api
     type: web
     runtime: docker
-    plan: free
+    plan: 0.5c-512mb
     region: oregon
     dockerfilePath: ./Dockerfile.api
     dockerContext: .
