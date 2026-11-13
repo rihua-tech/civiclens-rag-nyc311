@@ -921,6 +921,14 @@ dd {
   line-height: 1.1;
 }
 
+.evaluation-summary {
+  max-width: 620px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .evaluation-scope {
   flex: 0 0 auto;
   padding: 7px 9px;
@@ -974,6 +982,7 @@ dd {
   display: block;
   min-height: 2.5em;
   color: #496267;
+  font-size: 0.75rem;
   line-height: 1.3;
 }
 
@@ -998,7 +1007,7 @@ dd {
 .metric-card p {
   margin: 9px 0 0;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.82rem;
   line-height: 1.45;
 }
 
@@ -1025,7 +1034,7 @@ dd {
 .evaluation-configuration dd {
   color: #40585c;
   font-family: inherit;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   line-height: 1.5;
 }
 
@@ -1033,7 +1042,7 @@ dd {
 .evaluation-unavailable p {
   margin: 0;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.82rem;
   line-height: 1.5;
 }
 

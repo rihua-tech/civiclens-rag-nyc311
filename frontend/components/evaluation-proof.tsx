@@ -41,6 +41,10 @@ export function EvaluationProof({ summary }: EvaluationProofProps) {
         <div>
           <span className="evaluation-eyebrow">Evaluation proof</span>
           <h2 id="evaluation-title">Measured quality, with its boundaries attached.</h2>
+          <p className="evaluation-summary">
+            Evaluated locally using Hybrid Retrieval + OpenAI. Not a measurement of the
+            hosted demo.
+          </p>
         </div>
         <span className="evaluation-scope">Local benchmark</span>
       </header>

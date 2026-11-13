@@ -33,6 +33,14 @@ describe("EvaluationProof", () => {
     expect(screen.getByText("November 13, 2026")).toBeVisible();
     expect(screen.getByText("issue10-v1 · 24 questions")).toBeVisible();
     expect(screen.getByText("p0-report-v2")).toBeVisible();
+    expect(
+      screen.getByText(
+        "Evaluated locally using Hybrid Retrieval + OpenAI. Not a measurement of the hosted demo.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Answerable questions incorrectly declined by the system."),
+    ).toBeVisible();
     expect(screen.getByText(/Hybrid retrieval.*all-MiniLM-L6-v2/)).toBeVisible();
     expect(screen.getByText(/OpenAI gpt-4o-mini.*16 calls.*0 fallbacks/)).toBeVisible();
     expect(screen.getByText(/Local benchmark only/)).toHaveTextContent(

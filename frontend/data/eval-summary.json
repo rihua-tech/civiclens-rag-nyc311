@@ -37,7 +37,7 @@
       "label": "False Abstention Rate",
       "value": 0.0556,
       "sample_count": 18,
-      "description": "Answerable questions that safely abstained."
+      "description": "Answerable questions incorrectly declined by the system."
     },
     {
       "id": "citation_id_validity",
