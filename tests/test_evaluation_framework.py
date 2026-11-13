@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 
 from src.common.config import Settings
@@ -15,6 +16,7 @@ from src.evaluation.evaluate_rag import (
     evaluate_strategy,
     evaluate_strategy_question,
     load_evaluation_questions,
+    response_abstention,
     run_evaluation,
 )
 from src.evaluation.reporting import markdown_report, write_reports
@@ -106,6 +108,37 @@ def test_issue10_dataset_covers_required_question_types():
     } <= categories
 
 
+def test_p0_datasets_are_versioned_and_holdout_digest_is_frozen():
+    development_path = Path("data/evaluation/p0_development_questions.csv")
+    holdout_path = Path("data/evaluation/p0_holdout_nonblind_questions.csv")
+    manifest = json.loads(
+        Path("data/evaluation/p0_holdout_manifest.json").read_text(encoding="utf-8")
+    )
+
+    development = load_evaluation_questions(development_path)
+    holdout = load_evaluation_questions(holdout_path)
+    digest = hashlib.sha256(holdout_path.read_bytes()).hexdigest()
+
+    assert len(development) == 20
+    assert len(holdout) == manifest["question_count"] == 12
+    assert {question.dataset_version for question in development} == {"p0-dev-v1"}
+    assert {question.dataset_version for question in holdout} == {
+        "p0-holdout-nonblind-v1"
+    }
+    assert digest == manifest["sha256"]
+    assert manifest["isolation"] == "non-blind"
+    assert manifest["independent_test_claim_allowed"] is False
+
+
+def test_structured_abstention_overrides_answer_text_and_legacy_is_labeled():
+    assert response_abstention(
+        {"answer": "custom safe message", "answer_status": "abstained"}
+    ) == (True, "structured")
+    assert response_abstention(
+        {"answer": "I do not have enough source context to answer that."}
+    ) == (True, "legacy_text_inference")
+
+
 def test_strategy_question_preserves_diagnostics_and_valid_citation():
     def retriever(_question: str, _strategy: StrategyDefinition) -> list[dict]:
         return [retrieved_chunk()]
@@ -160,6 +193,36 @@ def test_safe_no_answer_and_unsupported_answer_are_detected():
     assert "unsupported answer detected" in answered["failures"]
     assert abstained["safe_no_answer_correct"] is True
     assert abstained["unsupported_answer"] is False
+
+
+def test_abstention_with_sources_fails_integrity_and_is_unsupported():
+    question = EvaluationQuestion(
+        question="unsupported",
+        category="negative",
+        expected_behavior="safe_no_answer",
+        question_id="q-abstention-integrity",
+        dataset_version="test-v1",
+        phase1_legacy=False,
+        expected_route="rag",
+    )
+
+    result = evaluate_strategy_question(
+        question,
+        REAL_STRATEGIES[0],
+        lambda _question, _strategy: [retrieved_chunk()],
+        top_k=5,
+        application_responder=lambda _question, chunks: {
+            "answer": "I do not have enough source context to answer that.",
+            "answer_status": "abstained",
+            "sources": [{"chunk_id": chunks[0]["chunk_id"]}],
+            "citation_ids": [chunks[0]["chunk_id"]],
+            "mode": "rag",
+        },
+    )
+
+    assert result["actual_abstained"] is True
+    assert result["abstention_integrity"] is False
+    assert result["unsupported_answer"] is True
 
 
 def test_strategy_results_remain_separate_and_keep_configuration():

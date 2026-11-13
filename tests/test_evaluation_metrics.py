@@ -98,6 +98,9 @@ def test_application_metrics_keep_denominators_separate():
             "citation_present": True,
             "citation_valid": False,
             "safe_no_answer_expected": False,
+            "answer_expected": True,
+            "actual_abstained": False,
+            "false_abstention": False,
             "unsupported_answer": True,
         },
         {
@@ -105,6 +108,9 @@ def test_application_metrics_keep_denominators_separate():
             "citation_expected": False,
             "safe_no_answer_expected": True,
             "safe_no_answer_correct": True,
+            "answer_expected": False,
+            "actual_abstained": True,
+            "abstention_integrity": True,
             "unsupported_answer": False,
         },
     ]
@@ -114,9 +120,16 @@ def test_application_metrics_keep_denominators_separate():
     assert metrics["routing_accuracy"]["value"] == 0.5
     assert metrics["citation_presence"]["denominator"] == 1
     assert metrics["citation_validity"]["value"] == 0.0
-    assert metrics["safe_no_answer_accuracy"]["denominator"] == 1
+    assert metrics["abstention_recall"]["denominator"] == 1
+    assert metrics["false_abstention_rate"] == {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 1,
+    }
+    assert metrics["abstention_integrity"]["value"] == 1.0
     assert metrics["unsupported_answer"] == {
         "count": 1,
         "rate": 0.5,
         "denominator": 2,
     }
+    assert metrics["provider_and_fallback"]["fallback_count"] == 0

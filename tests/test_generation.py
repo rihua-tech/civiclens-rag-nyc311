@@ -100,7 +100,35 @@ def test_weak_retrieval_returns_safe_no_answer():
     response = local_answer("What does complaint_type mean?", [unrelated_chunk])
 
     assert response["answer"] == NO_ANSWER
-    assert response["sources"]
+    assert response["answer_status"] == "abstained"
+    assert response["sources"] == []
+    assert response["citation_ids"] == []
+
+
+def test_single_generic_word_overlap_is_not_sufficient_evidence():
+    chunk = sample_chunk()
+    chunk["chunk_text"] = "The agency responds to service requests."
+
+    response = local_answer(
+        "Which agency has the highest customer satisfaction score?",
+        [chunk],
+    )
+
+    assert response["answer_status"] == "abstained"
+    assert response["sources"] == []
+
+
+def test_meaningful_field_term_coverage_preserves_documentation_answer():
+    chunk = sample_chunk()
+    chunk["chunk_text"] = (
+        "Problem / Complaint Type (`complaint_type`) is the broad category "
+        "describing the reported incident or condition."
+    )
+
+    response = local_answer("What does complaint_type mean?", [chunk])
+
+    assert response["answer_status"] == "answered"
+    assert response["citation_ids"] == ["chunk_1"]
 
 
 def test_local_answer_accepts_lexical_only_result_diagnostics():

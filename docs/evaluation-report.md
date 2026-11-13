@@ -1,5 +1,7 @@
 # CivicLens Issue 10 Evaluation Baseline
 
+> Historical published result: this document preserves the approved 2026-08-19 Issue 10 results and their original metric definition. It was not reproduced as the Phase 0 environment. Newly reproduced corrected-metric results are reported separately in [evaluation-p0-report.md](evaluation-p0-report.md).
+
 This is the approved Issue 10 portfolio baseline, measured on 2026-08-19. It records the current implementation honestly; it is not a production benchmark, a tuning target, or a claim of statistical significance.
 
 ## Evaluation Definition

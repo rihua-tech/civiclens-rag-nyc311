@@ -162,7 +162,7 @@ def test_all_four_langgraph_analytics_routes_preserve_provenance(
     assert result["orchestration_outcome"] == "answered"
 
 
-def test_unsupported_analytics_route_returns_existing_safe_fallback():
+def test_unsupported_analytics_route_returns_scope_abstention():
     result = run_langgraph_workflow(
         "Compare requests by weekday",
         top_k=5,
@@ -171,11 +171,12 @@ def test_unsupported_analytics_route_returns_existing_safe_fallback():
         dependencies=_dependencies(),
     )
 
-    assert result["mode"] == "fallback"
+    assert result["mode"] == "analytics"
     assert result["answer_status"] == "abstained"
     assert result["sources"] == []
     assert result["orchestration_outcome"] == "fallback"
     assert result["orchestration_tool_call_count"] == 0
+    assert result["scope_blocked"] is True
 
 
 def test_langgraph_observability_records_only_operational_metadata(monkeypatch):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from collections import Counter
 from typing import Any
 
 
@@ -100,6 +101,12 @@ def aggregate_application_metrics(
     no_answer_eligible = [
         result for result in question_results if result.get("safe_no_answer_expected")
     ]
+    answer_eligible = [
+        result for result in question_results if result.get("answer_expected")
+    ]
+    actual_abstentions = [
+        result for result in question_results if result.get("actual_abstained")
+    ]
     unsupported_count = sum(
         bool(result.get("unsupported_answer")) for result in question_results
     )
@@ -114,12 +121,45 @@ def aggregate_application_metrics(
         "citation_validity": boolean_metric(
             result["citation_valid"] for result in citation_eligible
         ),
-        "safe_no_answer_accuracy": boolean_metric(
+        "abstention_recall": boolean_metric(
             result["safe_no_answer_correct"] for result in no_answer_eligible
+        ),
+        "false_abstention_rate": boolean_metric(
+            result["false_abstention"] for result in answer_eligible
+        ),
+        "abstention_integrity": boolean_metric(
+            result["abstention_integrity"] for result in actual_abstentions
         ),
         "unsupported_answer": {
             "count": unsupported_count,
             "rate": unsupported_count / total if total else None,
             "denominator": total,
+        },
+        "provider_and_fallback": {
+            "answer_provider_counts": dict(
+                sorted(
+                    Counter(
+                        str(result.get("answer_provider") or "not_used")
+                        for result in question_results
+                    ).items()
+                )
+            ),
+            "provider_called_count": sum(
+                bool(result.get("answer_provider_called"))
+                for result in question_results
+            ),
+            "fallback_count": sum(
+                bool(result.get("answer_fallback_used"))
+                for result in question_results
+            ),
+            "fallback_rate": (
+                sum(
+                    bool(result.get("answer_fallback_used"))
+                    for result in question_results
+                )
+                / total
+                if total
+                else None
+            ),
         },
     }

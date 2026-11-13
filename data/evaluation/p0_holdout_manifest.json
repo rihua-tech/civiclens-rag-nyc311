@@ -1,0 +1,10 @@
+{
+  "dataset_version": "p0-holdout-nonblind-v1",
+  "path": "data/evaluation/p0_holdout_nonblind_questions.csv",
+  "question_count": 12,
+  "sha256": "a2eb290ae3c30743ae1e2046b05d2d51a12c8a831b98b2b11a155b1531ae512c",
+  "frozen_on": "2026-11-12",
+  "isolation": "non-blind",
+  "independent_test_claim_allowed": false,
+  "reason": "The same implementation agent created and could inspect the labels; genuine isolation was not available. The file was hashed before behavioral changes and is evaluated only after implementation freeze."
+}

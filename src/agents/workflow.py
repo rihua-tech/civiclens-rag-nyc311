@@ -100,6 +100,7 @@ def run_langgraph_workflow(
             "settings": settings,
             "query_id": query_id,
             "route": None,
+            "scope_reason": None,
             "tool_id": None,
             "tool_arguments": {},
             "result": None,

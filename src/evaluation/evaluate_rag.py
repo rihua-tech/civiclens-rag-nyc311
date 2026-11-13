@@ -20,9 +20,11 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from src.analytics.simple_analytics import (
+    ANALYTICS_FALLBACK,
     answer_analytics_question,
     looks_like_analytics_question,
 )
+from src.orchestration.route_decision import QuestionRoute, decide_question_route
 from src.chunking.chunk_documents import chunk_documents
 from src.common.config import (
     DEFAULT_RERANKER_MODEL,
@@ -57,7 +59,7 @@ from src.retrieval.retrieve_context import DEFAULT_MIN_SIMILARITY, retrieve_cont
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EVALUATION_PATH = PROJECT_ROOT / "data" / "evaluation" / "rag_test_questions.csv"
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "data" / "evaluation" / "results"
-EVALUATION_SCHEMA_VERSION = "issue10-report-v1"
+EVALUATION_SCHEMA_VERSION = "p0-report-v2"
 DEFAULT_TOP_K = 5
 MULTI_VALUE_SEPARATOR = "|"
 SUPPORTED_RELEVANCE_GRANULARITIES = {"document", "section", "chunk"}
@@ -264,6 +266,34 @@ def analytics_sources_are_sample_outputs(sources: list[dict[str, Any]]) -> bool:
     )
 
 
+def response_abstention(response: dict[str, Any]) -> tuple[bool, str]:
+    """Prefer the structured disposition, with a labeled legacy fallback."""
+
+    status = response.get("answer_status")
+    if status == "abstained":
+        return True, "structured"
+    if status == "answered":
+        return False, "structured"
+    answer = str(response.get("answer", "")).strip()
+    return answer == NO_ANSWER, "legacy_text_inference"
+
+
+def abstention_has_integrity(
+    response: dict[str, Any],
+    sources: Sequence[dict[str, Any]],
+) -> bool:
+    """Require abstentions to disclose no evidence claims or citation artifacts."""
+
+    answer = str(response.get("answer", "")).strip()
+    citation_ids = response.get("citation_ids") or []
+    return bool(
+        answer in {NO_ANSWER, ANALYTICS_FALLBACK}
+        and not sources
+        and not citation_ids
+        and not citations_in_answer(answer)
+    )
+
+
 def evaluate_question(
     question: EvaluationQuestion,
     response: dict[str, Any],
@@ -274,6 +304,7 @@ def evaluate_question(
     answer = str(response.get("answer", "")).strip()
     sources = list(response.get("sources", []))
     mode = str(response.get("mode", "unknown"))
+    abstained, _ = response_abstention(response)
     if answer:
         passed_checks += 1
     else:
@@ -284,7 +315,7 @@ def evaluate_question(
         failed_checks.append("answer contains raw markdown clutter")
 
     if question.expected_behavior == "cited_answer":
-        if answer and answer != NO_ANSWER:
+        if answer and not abstained:
             passed_checks += 1
         else:
             failed_checks.append("expected a cited answer, got safe no-answer")
@@ -314,7 +345,7 @@ def evaluate_question(
                 f"missing expected analytics source hint: {question.expected_source_hint}"
             )
     elif question.expected_behavior == "safe_no_answer":
-        if answer == NO_ANSWER:
+        if abstained:
             passed_checks += 1
         else:
             failed_checks.append("expected safe no-answer response")
@@ -357,11 +388,9 @@ def route_application_response(
     question: str,
     retrieved_chunks: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    analytics_response = answer_analytics_question(question)
-    if analytics_response["mode"] == "analytics":
-        return analytics_response
-    if looks_like_analytics_question(question):
-        return analytics_response
+    decision = decide_question_route(question)
+    if decision.route is not QuestionRoute.RAG:
+        return answer_analytics_question(question)
     response = local_answer(question, retrieved_chunks)
     response["mode"] = "rag"
     response.setdefault("sample_rows", [])
@@ -592,12 +621,10 @@ def evaluate_strategy_question(
     application_responder: ApplicationResponder = route_application_response,
     answer_profile: str = LOCAL_ANSWER_PROVIDER,
 ) -> dict[str, Any]:
-    analytics_response = answer_analytics_question(question.question)
-    if analytics_response["mode"] == "analytics" or looks_like_analytics_question(
-        question.question
-    ):
+    decision = decide_question_route(question.question)
+    if decision.route is not QuestionRoute.RAG:
         retrieved_chunks: list[dict[str, Any]] = []
-        response = analytics_response
+        response = answer_analytics_question(question.question)
         answer_provider_used = False
     else:
         retrieved_chunks = retriever(question.question, strategy)
@@ -609,6 +636,10 @@ def evaluate_strategy_question(
     answer = str(response.get("answer", "")).strip()
     sources = list(response.get("sources", []))
     actual_route = str(response.get("mode", "unknown"))
+    actual_abstained, answer_status_source = response_abstention(response)
+    abstention_integrity = (
+        abstention_has_integrity(response, sources) if actual_abstained else None
+    )
     retrieval_eligible = bool(question.relevant_ids)
     retrieved_relevance_ids = (
         [
@@ -650,12 +681,17 @@ def evaluate_strategy_question(
         else None
     )
     safe_no_answer_expected = question.expected_behavior == "safe_no_answer"
-    safe_no_answer_correct = answer == NO_ANSWER if safe_no_answer_expected else None
+    safe_no_answer_correct = actual_abstained if safe_no_answer_expected else None
+    answer_expected = question.expected_behavior in {"cited_answer", "analytics_answer"}
+    false_abstention = actual_abstained if answer_expected else None
     unsupported_answer = bool(
-        (safe_no_answer_expected and answer != NO_ANSWER)
+        (
+            safe_no_answer_expected
+            and (not actual_abstained or abstention_integrity is not True)
+        )
         or (
             citation_expected
-            and answer != NO_ANSWER
+            and not actual_abstained
             and (not retrieved_chunks or not citation_valid)
         )
     )
@@ -673,7 +709,11 @@ def evaluate_strategy_question(
     if citation_expected and not citation_valid:
         failures.append("citation is invalid")
     if safe_no_answer_expected and not safe_no_answer_correct:
-        failures.append("safe no-answer expectation failed")
+        failures.append("expected abstention was not returned")
+    if actual_abstained and abstention_integrity is not True:
+        failures.append("abstention disclosed sources or citation artifacts")
+    if false_abstention:
+        failures.append("answerable question was falsely abstained")
     if unsupported_answer:
         failures.append("unsupported answer detected")
     if (
@@ -711,11 +751,19 @@ def evaluate_strategy_question(
         "citation_valid": citation_valid,
         "safe_no_answer_expected": safe_no_answer_expected,
         "safe_no_answer_correct": safe_no_answer_correct,
+        "answer_expected": answer_expected,
+        "actual_abstained": actual_abstained,
+        "answer_status_source": answer_status_source,
+        "abstention_integrity": abstention_integrity,
+        "false_abstention": false_abstention,
         "unsupported_answer": unsupported_answer,
         "answer_profile": answer_profile,
         "answer_provider": response.get("answer_provider"),
         "answer_status": response.get("answer_status"),
+        "answer_provider_called": response.get("provider_called", False),
         "answer_fallback_used": response.get("fallback_used", False),
+        "answer_fallback_from": response.get("fallback_from"),
+        "answer_fallback_reason": response.get("fallback_reason"),
         "answer": answer,
         "sources": sources,
         "retrieved_results": [
@@ -879,6 +927,7 @@ def build_report(
     top_k: int,
     answer_profile: str = LOCAL_ANSWER_PROVIDER,
     answer_model: str = "deterministic-context-extractor-v1",
+    dataset_path: str | Path = DEFAULT_EVALUATION_PATH,
 ) -> dict[str, Any]:
     dataset_version = questions[0].dataset_version if questions else "unknown"
     granularity = validate_relevance_granularity(questions)
@@ -901,7 +950,7 @@ def build_report(
         "top_k": top_k,
         "dataset": {
             "version": dataset_version,
-            "path": str(DEFAULT_EVALUATION_PATH.relative_to(PROJECT_ROOT)).replace(
+            "path": str(Path(dataset_path).resolve().relative_to(PROJECT_ROOT)).replace(
                 "\\", "/"
             ),
             "question_count": len(questions),
@@ -921,8 +970,8 @@ def build_report(
         "limitations": [
             "This is a small curated portfolio benchmark, not production-scale evaluation.",
             "It is not a large human-annotated benchmark and does not establish statistical significance.",
-            "No LLM is used as a judge; checks cover explicit retrieval IDs and deterministic application behavior only.",
-            "Real LLM evaluation remains deferred until after Issue 11.",
+            "No LLM is used as a judge; checks cover explicit retrieval IDs, structured dispositions, citation artifacts, and deterministic application behavior only.",
+            "Citation ID validity does not establish that answer wording is semantically supported; representative answers require manual review.",
             "Higher scores do not by themselves prove production quality or readiness.",
         ],
     }
@@ -949,6 +998,7 @@ def run_evaluation(
     evaluation_timestamp: str,
     answer_profile: str = LOCAL_ANSWER_PROVIDER,
     answer_provider: AnswerProvider | None = None,
+    dataset_path: str | Path = DEFAULT_EVALUATION_PATH,
 ) -> dict[str, Any]:
     if answer_profile == OPENAI_ANSWER_PROVIDER and profile != "real":
         raise ValueError(
@@ -995,6 +1045,7 @@ def run_evaluation(
             if answer_profile == OPENAI_ANSWER_PROVIDER
             else "deterministic-context-extractor-v1"
         ),
+        dataset_path=dataset_path,
     )
 
 
@@ -1018,8 +1069,12 @@ def print_report_summary(report: dict[str, Any]) -> str:
                 f"  Routing accuracy: {application['routing_accuracy']['value']}",
                 f"  Citation presence: {application['citation_presence']['value']}",
                 f"  Citation validity: {application['citation_validity']['value']}",
-                "  Safe no-answer accuracy: "
-                f"{application['safe_no_answer_accuracy']['value']}",
+                "  Abstention recall: "
+                f"{application['abstention_recall']['value']}",
+                "  False abstention rate: "
+                f"{application['false_abstention_rate']['value']}",
+                "  Abstention integrity: "
+                f"{application['abstention_integrity']['value']}",
                 "  Unsupported answers: "
                 f"{application['unsupported_answer']['count']}",
             ]
@@ -1061,6 +1116,7 @@ def main() -> int:
         min_similarity=args.min_similarity,
         evaluation_timestamp=evaluation_timestamp,
         answer_profile=args.answer_profile,
+        dataset_path=args.questions_path,
     )
     default_stem = (
         f"{args.profile}-evaluation"

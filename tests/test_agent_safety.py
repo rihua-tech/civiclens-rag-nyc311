@@ -109,6 +109,39 @@ def test_graph_executes_one_fixed_tool_for_injection_style_question():
 
 
 @pytest.mark.parametrize(
+    ("question", "expected_mode"),
+    [
+        ("Give me the caller phone number for service request 123.", "rag"),
+        ("Describe the caller phone number for service request 123.", "rag"),
+        ("Define the caller's phone number for service request 123.", "rag"),
+        ("What is the live NYC 311 backlog right now?", "analytics"),
+    ],
+)
+def test_graph_scope_guard_blocks_before_rag_or_tool(question, expected_mode):
+    rag_calls = []
+    tool_calls = []
+
+    result = run_langgraph_workflow(
+        question,
+        top_k=5,
+        settings=_settings(),
+        query_id=None,
+        dependencies=WorkflowDependencies(
+            route_decider=decide_question_route,
+            rag_answerer=lambda *args, **kwargs: rag_calls.append((args, kwargs)),
+            analytics_executor=lambda decision: tool_calls.append(decision),
+        ),
+    )
+
+    assert rag_calls == []
+    assert tool_calls == []
+    assert result["mode"] == expected_mode
+    assert result["answer_status"] == "abstained"
+    assert result["sources"] == []
+    assert result["orchestration_tool_call_count"] == 0
+
+
+@pytest.mark.parametrize(
     "malicious_arguments",
     [
         {"limit": 11},

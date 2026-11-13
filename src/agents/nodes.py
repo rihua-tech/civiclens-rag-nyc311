@@ -19,6 +19,7 @@ from src.orchestration.route_decision import (
     decide_question_route,
     normalize_question,
 )
+from src.orchestration.scope_guard import scope_abstention_response
 from src.agents.state import WorkflowState
 
 
@@ -85,7 +86,11 @@ def safe_workflow_result(
 ) -> dict[str, Any]:
     """Return a provider-neutral abstention without internal exception details."""
 
-    mode = "analytics" if route is QuestionRoute.ANALYTICS else "rag"
+    mode = (
+        "analytics"
+        if route in {QuestionRoute.ANALYTICS, QuestionRoute.UNSUPPORTED_ANALYTICS}
+        else "rag"
+    )
     return {
         "answer": GRAPH_FALLBACK_MESSAGE,
         "sources": [],
@@ -136,6 +141,7 @@ def routing_node(
     decision = dependencies.route_decider(state["question"])
     return {
         "route": decision.route,
+        "scope_reason": decision.scope_reason,
         "tool_id": decision.tool_id,
         "tool_arguments": dict(decision.tool_arguments),
         "step_count": step_count,
@@ -204,8 +210,16 @@ def analytics_execution_node(
 
 def fallback_node(state: WorkflowState) -> dict[str, Any]:
     step_count = _next_step(state)
-    response = fallback_response()
-    response["answer_status"] = AnswerStatus.ABSTAINED.value
+    route = state.get("route")
+    if route in {QuestionRoute.UNSUPPORTED_RAG, QuestionRoute.UNSUPPORTED_ANALYTICS}:
+        response = scope_abstention_response(
+            RouteDecision(
+                route=route,
+                scope_reason=state.get("scope_reason") or "unsupported_scope",
+            )
+        )
+    else:
+        response = fallback_response()
     return {
         "result": response,
         "step_count": step_count,

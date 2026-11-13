@@ -32,8 +32,8 @@ def markdown_report(report: dict[str, Any]) -> str:
         "",
         "## Strategy Comparison",
         "",
-        "| Strategy | Recall@k | MRR | Expected-source retrieval | Routing | Citations present | Citations valid | Safe no-answer | Unsupported answers |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Strategy | Recall@k | MRR | Expected-source retrieval | Routing | Citations present | Citations valid | Abstention recall | False abstention | Abstention integrity | Unsupported answers |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
 
     answer_evaluation = report.get("answer_evaluation")
@@ -63,8 +63,10 @@ def markdown_report(report: dict[str, Any]) -> str:
                     format_metric(application["routing_accuracy"]),
                     format_metric(application["citation_presence"]),
                     format_metric(application["citation_validity"]),
-                    format_metric(application["safe_no_answer_accuracy"]),
-                    f"{unsupported['count']}/{unsupported['denominator']}",
+                    format_metric(application["abstention_recall"]),
+                    format_metric(application["false_abstention_rate"]),
+                    format_metric(application["abstention_integrity"]),
+                    f"{unsupported['count']}/{unsupported['denominator']} ({unsupported['rate']:.4f})",
                 ]
             )
             + " |"
@@ -80,7 +82,9 @@ def markdown_report(report: dict[str, Any]) -> str:
             "MRR uses the reciprocal rank of the first relevant result and zero when none is retrieved, then macro-averages eligible questions.",
             "Questions without retrieval relevance labels are excluded from Recall@k, MRR, and expected-source denominators.",
             "Expected-source retrieval checks retrieved document IDs independently from section-level relevance.",
-            "Application metrics are reported separately and use deterministic routing, citation, and no-answer checks; no LLM judge is used.",
+            "Application metrics are reported separately and prefer structured answer_status. Exact no-answer text is used only as a labeled legacy fallback when status is absent.",
+            "Abstention recall uses expected-abstention questions; false-abstention rate uses answerable questions. Abstention integrity requires no sources or citation artifacts.",
+            "Citation ID validity is application-owned but is not proof that the answer text is semantically supported; manual review remains separate.",
             "",
             "## Reproducibility Configuration",
             "",
@@ -92,6 +96,11 @@ def markdown_report(report: dict[str, Any]) -> str:
         lines.append("")
         for key, value in strategy["configuration"].items():
             lines.append(f"- `{key}`: `{value}`")
+        provider = strategy["application_metrics"]["provider_and_fallback"]
+        lines.append(f"- `answer_provider_counts`: `{provider['answer_provider_counts']}`")
+        lines.append(f"- `provider_called_count`: `{provider['provider_called_count']}`")
+        lines.append(f"- `fallback_count`: `{provider['fallback_count']}`")
+        lines.append(f"- `fallback_rate`: `{provider['fallback_rate']}`")
         lines.append("")
 
     lines.extend(["## Failed Cases", ""])
