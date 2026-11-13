@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./Dockerfile.api
     dockerContext: .
     healthCheckPath: /health
-    autoDeployTrigger: "off"
+    autoDeployTrigger: "checksPass"
     dockerCommand: /bin/sh scripts/render_start.sh
     envVars:
       - key: DATABASE_URL
