@@ -72,8 +72,10 @@ export function EvaluationProof({ summary }: EvaluationProofProps) {
             key={metric.id}
           >
             <span className="metric-label">{metric.label}</span>
-            <strong>{percentFormatter.format(metric.value)}</strong>
-            <span className="metric-sample">n={metric.sample_count}</span>
+            <div className="metric-value-row">
+              <strong>{percentFormatter.format(metric.value)}</strong>
+              <span className="metric-sample">n={metric.sample_count}</span>
+            </div>
             <p>{metric.description}</p>
           </article>
         ))}
