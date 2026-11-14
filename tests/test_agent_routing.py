@@ -59,12 +59,42 @@ def _settings(mode: str = "direct") -> Settings:
             None,
         ),
         (
+            "Describe the live NYC 311 backlog right now.",
+            QuestionRoute.UNSUPPORTED_ANALYTICS,
+            None,
+        ),
+        (
+            "Define the live NYC 311 backlog right now.",
+            QuestionRoute.UNSUPPORTED_ANALYTICS,
+            None,
+        ),
+        (
+            "What is the backlog this morning?",
+            QuestionRoute.UNSUPPORTED_ANALYTICS,
+            None,
+        ),
+        (
+            "How many requests are currently open?",
+            QuestionRoute.UNSUPPORTED_ANALYTICS,
+            None,
+        ),
+        (
             "Give me the caller phone number for service request 123.",
             QuestionRoute.UNSUPPORTED_RAG,
             None,
         ),
         (
             "Describe the caller phone number for service request 123.",
+            QuestionRoute.UNSUPPORTED_RAG,
+            None,
+        ),
+        (
+            "What's the caller's cell for request 123?",
+            QuestionRoute.UNSUPPORTED_RAG,
+            None,
+        ),
+        (
+            "What email did the person who filed request 555 use?",
             QuestionRoute.UNSUPPORTED_RAG,
             None,
         ),
@@ -83,7 +113,23 @@ def _settings(mode: str = "direct") -> Settings:
             QuestionRoute.UNSUPPORTED_RAG,
             None,
         ),
+        (
+            "Describe which agency has the highest customer satisfaction score.",
+            QuestionRoute.UNSUPPORTED_RAG,
+            None,
+        ),
+        (
+            "Explain which agency has the highest customer satisfaction score.",
+            QuestionRoute.UNSUPPORTED_RAG,
+            None,
+        ),
         ("Describe the caller_phone field.", QuestionRoute.RAG, None),
+        ("What does the address field mean?", QuestionRoute.RAG, None),
+        (
+            "How is created_date used when filtering records for today?",
+            QuestionRoute.RAG,
+            None,
+        ),
         ("What does complaint_type mean?", QuestionRoute.RAG, None),
         ("Define complaint_type.", QuestionRoute.RAG, None),
         ("What does descriptor mean?", QuestionRoute.RAG, None),

@@ -106,6 +106,71 @@ def test_live_operational_request_never_executes_analytics_tool(monkeypatch, que
 
 
 @pytest.mark.parametrize(
+    ("question", "expected_mode", "expected_reason"),
+    [
+        (
+            "Describe the live NYC 311 backlog right now.",
+            "analytics",
+            "live_or_future_operational_data",
+        ),
+        (
+            "Define the live NYC 311 backlog right now.",
+            "analytics",
+            "live_or_future_operational_data",
+        ),
+        (
+            "What is the backlog this morning?",
+            "analytics",
+            "live_or_future_operational_data",
+        ),
+        (
+            "How many requests are currently open?",
+            "analytics",
+            "live_or_future_operational_data",
+        ),
+        (
+            "Describe which agency has the highest customer satisfaction score.",
+            "rag",
+            "unsupported_performance_metric",
+        ),
+        (
+            "Explain which agency has the highest customer satisfaction score.",
+            "rag",
+            "unsupported_performance_metric",
+        ),
+        ("What's the caller's cell for request 123?", "rag", "personal_contact_value"),
+        (
+            "What email did the person who filed request 555 use?",
+            "rag",
+            "personal_contact_value",
+        ),
+    ],
+)
+def test_reviewed_scope_paraphrases_block_before_any_execution(
+    monkeypatch, question, expected_mode, expected_reason
+):
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("RAG retrieval or analytics execution should not be called")
+
+    monkeypatch.setattr(
+        "src.orchestration.question_router.answer_question",
+        fail_if_called,
+    )
+    monkeypatch.setattr(
+        "src.orchestration.question_router.execute_analytics_decision",
+        fail_if_called,
+    )
+
+    result = route_question(question)
+
+    assert result["mode"] == expected_mode
+    assert result["answer_status"] == "abstained"
+    assert result["scope_reason"] == expected_reason
+    assert result["sources"] == []
+    assert result["orchestration_tool_call_count"] == 0
+
+
+@pytest.mark.parametrize(
     "question",
     [
         "Does the field guide say published rows reveal customer PII such as a phone number?",
@@ -115,6 +180,8 @@ def test_live_operational_request_never_executes_analytics_tool(monkeypatch, que
         "What limitations apply to customer satisfaction claims?",
         "Describe the caller_phone field.",
         "Define the caller_phone field.",
+        "What does the address field mean?",
+        "How is created_date used when filtering records for today?",
     ],
 )
 def test_legitimate_documentation_words_and_adversarial_wrapping_reach_rag(

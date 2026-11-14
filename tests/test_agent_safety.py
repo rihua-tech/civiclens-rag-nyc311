@@ -115,6 +115,15 @@ def test_graph_executes_one_fixed_tool_for_injection_style_question():
         ("Describe the caller phone number for service request 123.", "rag"),
         ("Define the caller's phone number for service request 123.", "rag"),
         ("What is the live NYC 311 backlog right now?", "analytics"),
+        ("Describe the live NYC 311 backlog right now.", "analytics"),
+        ("What is the backlog this morning?", "analytics"),
+        ("How many requests are currently open?", "analytics"),
+        (
+            "Describe which agency has the highest customer satisfaction score.",
+            "rag",
+        ),
+        ("What's the caller's cell for request 123?", "rag"),
+        ("What email did the person who filed request 555 use?", "rag"),
     ],
 )
 def test_graph_scope_guard_blocks_before_rag_or_tool(question, expected_mode):
