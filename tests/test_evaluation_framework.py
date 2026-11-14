@@ -119,9 +119,9 @@ def test_p0_datasets_are_versioned_and_holdout_digest_is_frozen():
     holdout = load_evaluation_questions(holdout_path)
     digest = hashlib.sha256(holdout_path.read_bytes()).hexdigest()
 
-    assert len(development) == 20
+    assert len(development) == 26
     assert len(holdout) == manifest["question_count"] == 12
-    assert {question.dataset_version for question in development} == {"p0-dev-v1"}
+    assert {question.dataset_version for question in development} == {"p0-dev-v2"}
     assert {question.dataset_version for question in holdout} == {
         "p0-holdout-nonblind-v1"
     }

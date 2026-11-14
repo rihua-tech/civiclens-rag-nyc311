@@ -65,6 +65,8 @@ FIELD_INTENT_CUES = (
     "explain",
     "interpret",
     "interpretation",
+    "use",
+    "used",
 )
 FIELD_LABEL_CUES = (
     "complaint type",
@@ -74,9 +76,14 @@ FIELD_LABEL_CUES = (
 )
 LIVE_REQUEST_TIME_CUES = (
     "live",
+    "current",
+    "currently",
     "right now",
     "today",
     "yesterday",
+    "this morning",
+    "this afternoon",
+    "this evening",
     "this week",
     "last week",
     "this month",
@@ -93,6 +100,9 @@ FUTURE_OPERATIONAL_CUES = (
 )
 SATISFACTION_CUES = ("satisfaction", "satisfied")
 PERSONAL_CONTACT_CUES = (
+    "cell",
+    "cell phone",
+    "email",
     "phone number",
     "phone contact",
     "email address",
@@ -119,7 +129,6 @@ DOCUMENTATION_INTENT_CUES = (
     "dataset include",
     "dataset contain",
     "described",
-    "describe",
     "limitations",
     "source says",
     "evidence says",
@@ -140,7 +149,9 @@ SATISFACTION_METRIC_CUES = (
 )
 OPERATIONAL_SUBJECT_CUES = (
     "request",
+    "requests",
     "complaint",
+    "complaints",
     "backlog",
     "status",
     "count",
@@ -214,6 +225,10 @@ def _contains_cue(normalized_question: str, cue: str) -> bool:
     ) is not None
 
 
+def _contains_any_cue(normalized_question: str, cues: tuple[str, ...]) -> bool:
+    return any(_contains_cue(normalized_question, cue) for cue in cues)
+
+
 def looks_like_aggregation_question(normalized_question: str) -> bool:
     lowered = normalized_question.lower()
     return any(_contains_cue(lowered, cue) for cue in AGGREGATION_CUES)
@@ -236,8 +251,8 @@ def looks_like_documentation_question(normalized_question: str) -> bool:
 
 def looks_like_private_value_request(normalized_question: str) -> bool:
     lowered = normalized_question.lower()
-    has_contact_value = any(cue in lowered for cue in PERSONAL_CONTACT_CUES)
-    has_personal_subject = any(cue in lowered for cue in PERSONAL_SUBJECT_CUES)
+    has_contact_value = _contains_any_cue(lowered, PERSONAL_CONTACT_CUES)
+    has_personal_subject = _contains_any_cue(lowered, PERSONAL_SUBJECT_CUES)
     if not (has_contact_value and has_personal_subject):
         return False
     if SPECIFIC_RECORD_PATTERN.search(lowered) is not None:
@@ -247,27 +262,31 @@ def looks_like_private_value_request(normalized_question: str) -> bool:
 
 def looks_like_unsupported_satisfaction_request(normalized_question: str) -> bool:
     lowered = normalized_question.lower()
-    if not any(cue in lowered for cue in SATISFACTION_CUES):
+    if not _contains_any_cue(lowered, SATISFACTION_CUES):
         return False
-    if looks_like_documentation_question(lowered):
+    if looks_like_field_definition_question(lowered) or _contains_any_cue(
+        lowered,
+        DOCUMENTATION_INTENT_CUES,
+    ):
         return False
-    return any(cue in lowered for cue in SATISFACTION_METRIC_CUES)
+    return _contains_any_cue(lowered, SATISFACTION_METRIC_CUES)
 
 
 def looks_like_live_operational_request(normalized_question: str) -> bool:
     lowered = normalized_question.lower()
-    if looks_like_documentation_question(lowered):
+    if looks_like_field_definition_question(lowered):
         return False
     if any(cue in lowered for cue in ("checked-in sample", "sample output", "sample data")):
         return False
-    has_operational_subject = any(cue in lowered for cue in OPERATIONAL_SUBJECT_CUES)
+    has_operational_subject = _contains_any_cue(lowered, OPERATIONAL_SUBJECT_CUES)
     has_live_time = (
-        any(cue in lowered for cue in LIVE_REQUEST_TIME_CUES)
-        or "current status" in lowered
-        or "current count" in lowered
-        or "current volume" in lowered
+        _contains_any_cue(lowered, LIVE_REQUEST_TIME_CUES)
+        or _contains_any_cue(
+            lowered,
+            ("current status", "current count", "current volume"),
+        )
     )
-    has_future_request = any(cue in lowered for cue in FUTURE_OPERATIONAL_CUES)
+    has_future_request = _contains_any_cue(lowered, FUTURE_OPERATIONAL_CUES)
     return has_operational_subject and (has_live_time or has_future_request)
 
 
@@ -285,15 +304,19 @@ def live_request_route(normalized_question: str) -> QuestionRoute:
 
 def looks_like_field_definition_question(normalized_question: str) -> bool:
     lowered = normalized_question.lower()
-    if FIELD_MEANING_PATTERN.search(lowered) is not None or any(
-        cue in lowered for cue in FIELD_DEFINITION_CUES
-    ):
-        return True
+    if SPECIFIC_RECORD_PATTERN.search(lowered) is not None:
+        return False
 
-    has_schema_field = SCHEMA_FIELD_PATTERN.search(lowered) is not None or any(
-        cue in lowered for cue in FIELD_LABEL_CUES
+    has_schema_field = (
+        SCHEMA_FIELD_PATTERN.search(lowered) is not None
+        or _contains_any_cue(lowered, FIELD_LABEL_CUES)
+        or re.search(r"\bfields?\b", lowered) is not None
     )
-    has_field_intent = any(cue in lowered for cue in FIELD_INTENT_CUES)
+    has_field_intent = (
+        FIELD_MEANING_PATTERN.search(lowered) is not None
+        or _contains_any_cue(lowered, FIELD_DEFINITION_CUES)
+        or _contains_any_cue(lowered, FIELD_INTENT_CUES)
+    )
     return (
         has_schema_field
         and has_field_intent
@@ -310,8 +333,6 @@ def decide_question_route(question: str) -> RouteDecision:
             route=QuestionRoute.UNSUPPORTED_RAG,
             scope_reason="personal_contact_value",
         )
-    if looks_like_field_definition_question(normalized):
-        return RouteDecision(route=QuestionRoute.RAG)
     if looks_like_live_operational_request(normalized):
         return RouteDecision(
             route=live_request_route(normalized),
@@ -322,6 +343,8 @@ def decide_question_route(question: str) -> RouteDecision:
             route=QuestionRoute.UNSUPPORTED_RAG,
             scope_reason="unsupported_performance_metric",
         )
+    if looks_like_field_definition_question(normalized):
+        return RouteDecision(route=QuestionRoute.RAG)
     has_complaint_type_subject = (
         "complaint type" in normalized
         or "complaint_type" in normalized
